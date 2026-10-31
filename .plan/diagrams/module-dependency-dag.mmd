@@ -1,0 +1,43 @@
+%% 关联决策: DD-005 (module-system)
+%% 说明: 展示"同目录允许循环，跨目录强制DAG"的规则示意
+
+flowchart TB
+    subgraph UserDir["📁 src/user/ (同目录，允许循环)"]
+        direction LR
+        UM["model.lv"] <--> US["service.lv"]
+        US <--> UMod["mod.lv<br/>(对外导出接口)"]
+    end
+
+    subgraph OrderDir["📁 src/order/ (同目录，允许循环)"]
+        direction LR
+        OH["handler.lv"] <--> OMod["mod.lv"]
+    end
+
+    subgraph SharedDir["📁 src/shared/"]
+        ST["types.lv"]
+    end
+
+    UMod -->|"合法：单向依赖"| SharedDir
+    OMod -->|"合法：单向依赖"| SharedDir
+
+    UMod -.->|"❌ 非法：跨目录循环<br/>编译期报错"| OMod
+    OMod -.->|"❌ 非法：形成环路"| UMod
+
+    style UMod fill:#ccffcc
+    style OMod fill:#ccffcc
+    style ST fill:#ccffcc
+
+    linkStyle 4 stroke:#cc0000,stroke-width:2px,stroke-dasharray: 5 5
+    linkStyle 5 stroke:#cc0000,stroke-width:2px,stroke-dasharray: 5 5
+
+%% 补充图：错误报告时的依赖链路径展示逻辑
+
+flowchart LR
+    A["user 模块"] -->|"使用 order::Order"| B["order 模块"]
+    B -->|"使用 user::User"| A
+
+    C["编译器检测到环路"] --> D["输出完整依赖链:<br/>user → order → user"]
+    D --> E["建议: 提取共享类型到 shared/"]
+
+    style A fill:#ffcccc
+    style B fill:#ffcccc

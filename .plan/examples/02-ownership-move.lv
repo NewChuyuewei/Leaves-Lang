@@ -1,0 +1,58 @@
+// ============================================================
+// 02-ownership-move.lv
+// 展示：所有权转移基础语义（move语义），借用，Copy类型例外
+// 关联决策：DD-001 (ownership-model), DD-002 (lifetime-inference 第一级)
+// ============================================================
+
+struct Buffer {
+    data: Vec<u8>,
+}
+
+// 基础类型(i32等)实现 Copy，按值复制，不触发移动
+function add_one(x: i32) -> i32 {
+    return x + 1;
+}
+
+// 非Copy类型，传参即转移所有权
+function consume(buf: Buffer) {
+    println("buffer len = {}", buf.data.len());
+    // buf 在此函数结束时被 drop
+}
+
+// 借用：不转移所有权，仅临时访问
+function inspect(buf: &Buffer) -> usize {
+    return buf.data.len();
+}
+
+// 可变借用：临时独占访问权，修改原数据
+function append_byte(buf: &mut Buffer, byte: u8) {
+    buf.data.push(byte);
+}
+
+function main() {
+    // --- Copy 类型：值语义，无所有权转移 ---
+    let x = 5;
+    let y = add_one(x);
+    println("x = {}, y = {}", x, y);  // x 仍然可用
+
+    // --- 非Copy类型：move 语义 ---
+    let b = Buffer { data: vec![1, 2, 3] };
+    consume(b);
+    // println("{}", b.data.len());  // ❌ 编译错误：b 的所有权已转移给 consume
+
+    // --- 借用：不转移所有权 ---
+    let b2 = Buffer { data: vec![4, 5, 6] };
+    let len = inspect(&b2);
+    println("b2 still usable, len = {}, direct = {}", len, b2.data.len());
+
+    // --- 可变借用 ---
+    let mut b3 = Buffer { data: vec![7, 8] };
+    append_byte(&mut b3, 9);
+    println("b3 after append: {:?}", b3.data);  // [7, 8, 9]
+
+    // --- 借用检查规则：同一时刻，可变借用唯一 ---
+    let mut b4 = Buffer { data: vec![1] };
+    let r1 = &mut b4;
+    // let r2 = &mut b4;  // ❌ 编译错误：b4 已经被可变借用
+    r1.data.push(2);
+}

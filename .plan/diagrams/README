@@ -1,0 +1,24 @@
+# 图表索引
+
+本目录使用 [Mermaid](https://mermaid.js.org/) 语法编写架构图表，纯文本存储，Git 友好，GitHub 网页可直接渲染。
+
+## 本地预览
+
+- VS Code：安装插件 "Markdown Preview Mermaid Support" 或 "Mermaid Editor"
+- 或直接粘贴到 [Mermaid Live Editor](https://mermaid.live/) 在线查看
+
+## 索引
+
+| 文件                                 | 内容                                            | 关联决策       |
+| ------------------------------------ | ----------------------------------------------- | -------------- |
+| `compiler-pipeline.mmd`              | 编译器整体流水线架构                            | DD-006         |
+| `module-dependency-dag.mmd`          | 模块依赖DAG规则示意（同目录循环 vs 跨目录禁止） | DD-005         |
+| `region-nesting.mmd`                 | Region 嵌套关系与生命周期包含规则               | DD-003         |
+| `concurrency-region-unification.mmd` | Scope = Region 边界的统一模型                   | DD-003, DD-007 |
+| `lifetime-inference-flow.mmd`        | 生命周期推断两级策略的判定流程                  | DD-002         |
+
+## 维护约定
+
+- 每张图必须在顶部注释注明关联的决策编号
+- 图表更新时，若反映了设计变化，必须同步检查对应 `decisions/DD-xxx.md` 是否也需要更新
+- 复杂图表优先拆分为多张简单图，而非追求单张图表达全部信息

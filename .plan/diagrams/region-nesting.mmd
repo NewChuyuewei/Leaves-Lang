@@ -1,0 +1,21 @@
+%% 关联决策: DD-003 (region-model)
+%% 说明: 展示Region嵌套规则 —— 内层生命周期必须被外层完全包含
+%%       对应 examples/03-region-nested.lv 中的 World/Level 示例
+
+flowchart TD
+    subgraph WorldRegion["region World (外层)"]
+        GW["struct GameWorld"]
+
+        subgraph LevelRegion["region Level (内层，嵌套)"]
+            LD["struct LevelData"]
+            LD -->|"parent_ref: &World::GameWorld<br/>✅ 允许：内层引用外层"| GW
+        end
+    end
+
+    GW -.->|"❌ 禁止：外层引用内层<br/>Level可能先于World释放"| LD
+
+    Note1["规则: 内层Region生命周期 ⊆ 外层Region<br/>编译器验证内层引用不会逃逸到<br/>外层释放之后"]
+
+    style LevelRegion fill:#e6f3ff,stroke:#0066cc
+    style WorldRegion fill:#fff9e6,stroke:#cc9900
+    style Note1 fill:#f0f0f0,stroke:#999999

@@ -1,0 +1,51 @@
+// ============================================================
+// 01-hello-world.lv
+// 展示：基础语法 —— 函数、变量、控制流、字符串插值、struct基础
+// 关联决策：无（纯语法速览，用于校验整体风格一致性）
+// ============================================================
+
+struct Greeter {
+    name: String,
+    greeted_count: i32,
+}
+
+function Greeter::new(name: String) -> Greeter {
+    return Greeter { name: name, greeted_count: 0 };
+}
+
+function Greeter::greet(&mut self) {
+    self.greeted_count += 1;
+    println("Hello, {}! (greeted {} times)", self.name, self.greeted_count);
+}
+
+function fizzbuzz(n: i32) -> String {
+    if n % 15 == 0 {
+        return "FizzBuzz";
+    } else if n % 3 == 0 {
+        return "Fizz";
+    } else if n % 5 == 0 {
+        return "Buzz";
+    } else {
+        return n.to_string();
+    }
+}
+
+function main() {
+    let mut greeter = Greeter::new("World");
+    greeter.greet();
+    greeter.greet();
+
+    let mut i = 1;
+    while i <= 15 {
+        println(fizzbuzz(i));
+        i += 1;
+    }
+
+    // 基础模式匹配
+    let value = 42;
+    match value {
+        0 => println("zero"),
+        n if n < 0 => println("negative"),
+        n => println("positive: {}", n),
+    }
+}

@@ -1,0 +1,92 @@
+// ============================================================
+// 03-region-nested.lv
+// 展示：显式Region、嵌套规则、Generational Region、跨线程<sync>
+// 关联决策：DD-003 (region-model)
+// 未决语法：GenRef的Option解包方式见 OQ-011，这里采用临时语法
+// ============================================================
+
+// --- 基础：同region内安全的循环引用（自引用结构体问题的解决方案）---
+region Graph {
+    struct Node {
+        value: i32,
+        edges: Vec<&Node>,   // 同region引用，无需生命周期标注
+    }
+}
+
+function build_cyclic_graph() -> Owned<Graph> {
+    let g = Graph::new();
+    let a = g.alloc(Node { value: 1, edges: vec![] });
+    let b = g.alloc(Node { value: 2, edges: vec![] });
+
+    a.edges.push(b);   // 安全的环状引用
+    b.edges.push(a);   // Rust中需要 Rc<RefCell<>> 或 unsafe，这里是编译期安全的
+
+    return g;   // 整个region作为单一所有权单元返回
+}
+
+// --- 嵌套Region：内层生命周期 ⊆ 外层 ---
+region World {
+    struct GameWorld {
+        name: String,
+    }
+
+    region Level {   // Level 不能比 World 活得久
+        struct LevelData {
+            parent_ref: &World::GameWorld,  // 允许引用外层
+            enemies: Vec<i32>,
+        }
+    }
+}
+
+function setup_level(world: &World::GameWorld) -> Owned<World::Level> {
+    let level_region = World::Level::new();
+    let data = level_region.alloc(World::Level::LevelData {
+        parent_ref: world,
+        enemies: vec![1, 2, 3],
+    });
+    return level_region;
+
+    // 若尝试将 data 的引用返回到 World 释放之后使用，编译器会在此处报错：
+    // error: `data` 借用自 Level region，其生命周期不能超出 Level 本身
+}
+
+// --- Generational Region：支持单对象删除 ---
+region Pool<generational> {
+    struct Entity {
+        hp: i32,
+    }
+}
+
+function tick(pool: &Pool<Entity>, id: GenRef<Entity>) {
+    // TODO(OQ-011): GenRef 的访问语法尚未最终确定，
+    // 这里采用 .get() 返回 Option 的临时方案
+    match pool.get(id) {
+        Some(e) => {
+            e.hp -= 1;
+            println("entity {} hp now {}", id, e.hp);
+        },
+        None => println("entity {} already removed", id),
+    }
+}
+
+function demo_generational() {
+    let pool = Pool::<Entity>::new();
+    let id1 = pool.alloc(Entity { hp: 100 });
+
+    tick(&pool, id1);        // 正常扣血
+    pool.remove(id1);        // 显式移除单个对象（仅generational region支持）
+    tick(&pool, id1);        // 安全：运行时检测到已移除，走 None 分支，非UB
+}
+
+// --- 跨线程共享：<sync> 标注 ---
+// TODO(OQ-002, OQ-009): 自动同步策略选择算法与Send/Sync关系尚未定稿
+region Cache<sync> {
+    struct SharedData {
+        counter: i32,
+    }
+}
+
+function main() {
+    let _g = build_cyclic_graph();
+    demo_generational();
+}
