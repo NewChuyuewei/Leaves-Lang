@@ -26,6 +26,22 @@
 
 
 /*
+** Leaves dialect control.
+**
+** Leaves extends Lua with extra syntax ('class'/'extends', and more to
+** come).  The extension is *opt-in*: by default a chunk is plain Lua and
+** 'class' is an ordinary identifier, so every existing .lua file keeps
+** compiling exactly as before.  The dialect is switched on by the 'l'
+** letter in a `lua_load`/`load` mode string; the standalone interpreter
+** and 'loadfile' turn it on automatically for '.leav' files.
+*/
+#define LUA_MODE_LEAVES		'l'
+
+/* true when the chunk being compiled uses the Leaves dialect */
+#define ls_isleaves(ls)	((ls)->leaves)
+
+
+/*
 * WARNING: if you change the order of this enumeration,
 * grep "ORDER RESERVED"
 */
@@ -35,6 +51,8 @@ enum RESERVED {
   TK_DO, TK_ELSE, TK_ELSEIF, TK_END, TK_FALSE, TK_FOR, TK_FUNCTION,
   TK_GLOBAL, TK_GOTO, TK_IF, TK_IN, TK_LOCAL, TK_NIL, TK_NOT, TK_OR,
   TK_REPEAT, TK_RETURN, TK_THEN, TK_TRUE, TK_UNTIL, TK_WHILE,
+  /* Leaves-only keywords (never registered as reserved words) */
+  TK_CLASS, TK_EXTENDS,
   /* other terminal symbols */
   TK_IDIV, TK_CONCAT, TK_DOTS, TK_EQ, TK_GE, TK_LE, TK_NE,
   TK_SHL, TK_SHR,
@@ -77,12 +95,16 @@ typedef struct LexState {
   TString *envn;  /* environment variable name */
   TString *brkn;  /* "break" name (used as a label) */
   TString *glbn;  /* "global" name (when not a reserved word) */
+  /* --- Leaves extensions --- */
+  int leaves;  /* compiling a Leaves chunk? */
+  int implicit_self;  /* next function body gets an implicit 'self'? */
+  int in_class;  /* nesting depth of 'class' bodies */
 } LexState;
 
 
 LUAI_FUNC void luaX_init (lua_State *L);
 LUAI_FUNC void luaX_setinput (lua_State *L, LexState *ls, ZIO *z,
-                              TString *source, int firstchar);
+                              TString *source, int firstchar, int leaves);
 LUAI_FUNC TString *luaX_newstring (LexState *ls, const char *str, size_t l);
 LUAI_FUNC void luaX_next (LexState *ls);
 LUAI_FUNC int luaX_lookahead (LexState *ls);

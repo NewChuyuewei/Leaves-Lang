@@ -47,10 +47,28 @@ static const char *const luaX_tokens [] = {
     "end", "false", "for", "function", "global", "goto", "if",
     "in", "local", "nil", "not", "or", "repeat",
     "return", "then", "true", "until", "while",
+    "class", "extends",
     "//", "..", "...", "==", ">=", "<=", "~=",
     "<<", ">>", "::", "<eof>",
     "<number>", "<integer>", "<name>", "<string>"
 };
+
+
+/*
+** The two keywords that exist only in the Leaves dialect.  They are
+** recognised by content, and only for chunks compiled in Leaves mode, so
+** 'class' remains an ordinary identifier everywhere else and no shared
+** string state has to be mutated.
+*/
+static int isleaveskeyword (TString *ts) {
+  size_t len = strisshr(ts) ? tsslen(ts) : 0;
+  const char *s = getstr(ts);
+  if (len == 5 && memcmp(s, "class", 5) == 0)
+    return TK_CLASS;
+  if (len == 7 && memcmp(s, "extends", 7) == 0)
+    return TK_EXTENDS;
+  return 0;
+}
 
 
 #define save_and_next(ls) (save(ls, ls->current), next(ls))
@@ -174,7 +192,7 @@ static void inclinenumber (LexState *ls) {
 
 
 void luaX_setinput (lua_State *L, LexState *ls, ZIO *z, TString *source,
-                    int firstchar) {
+                    int firstchar, int leaves) {
   ls->t.token = 0;
   ls->L = L;
   ls->current = firstchar;
@@ -193,6 +211,11 @@ void luaX_setinput (lua_State *L, LexState *ls, ZIO *z, TString *source,
   ls->glbn = luaS_newliteral(L, "global");  /* get "global" string */
   ls->glbn->extra = 0;  /* mark it as not reserved */
 #endif
+  /* Leaves state: 'class'/'extends' are keywords only for this chunk, so
+     no global keyword table is touched and nested chunks never interfere. */
+  ls->leaves = leaves;
+  ls->implicit_self = 0;
+  ls->in_class = 0;
   luaZ_resizebuffer(ls->L, ls->buff, LUA_MINBUFFER);  /* initialize buffer */
 }
 
@@ -561,6 +584,7 @@ static int llex (LexState *ls, SemInfo *seminfo) {
       default: {
         if (lislalpha(ls->current)) {  /* identifier or reserved word? */
           TString *ts;
+          int tok;
           do {
             save_and_next(ls);
           } while (lislalnum(ls->current));
@@ -569,7 +593,9 @@ static int llex (LexState *ls, SemInfo *seminfo) {
                                    luaZ_bufflen(ls->buff));
           if (isreserved(ts))   /* reserved word? */
             return ts->extra - 1 + FIRST_RESERVED;
-          else {
+          else if (ls->leaves && (tok = isleaveskeyword(ts)) != 0)
+            return tok;
+          {
             seminfo->ts = anchorstr(ls, ts);
             return TK_NAME;
           }

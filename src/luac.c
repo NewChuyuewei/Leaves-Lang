@@ -29,7 +29,7 @@
 static void PrintFunction(const Proto* f, int full);
 #define luaU_print	PrintFunction
 
-#define PROGNAME	"luac"		/* default program name */
+#define PROGNAME	"leavc"		/* default program name */
 #define OUTPUT		PROGNAME ".out"	/* default output file */
 
 static int listing=0;			/* list bytecodes? */
@@ -66,6 +66,8 @@ static void usage(const char* message)
   "  -p       parse only\n"
   "  -s       strip debug information\n"
   "  -v       show version information\n"
+  "  --leaves compile every input in the Leaves dialect\n"
+  "  --lua    compile every input as plain Lua (default)\n"
   "  --       stop handling options\n"
   "  -        stop handling options and process stdin\n"
   ,progname,Output);
@@ -73,6 +75,8 @@ static void usage(const char* message)
 }
 
 #define IS(s)	(strcmp(argv[i],s)==0)
+
+static int leaves_forced=0;  /* --leaves: compile everything as Leaves */
 
 static int doargs(int argc, char* argv[])
 {
@@ -104,6 +108,10 @@ static int doargs(int argc, char* argv[])
    dumping=0;
   else if (IS("-s"))			/* strip debug information */
    stripping=1;
+  else if (IS("--leaves"))		/* compile as Leaves */
+   leaves_forced=1;
+  else if (IS("--lua"))		/* compile as plain Lua */
+   leaves_forced=-1;
   else if (IS("-v"))			/* show version */
    ++version;
   else					/* unknown option */
@@ -177,7 +185,19 @@ static int pmain(lua_State* L)
  for (i=0; i<argc; i++)
  {
   const char* filename=IS("-") ? NULL : argv[i];
-  if (luaL_loadfile(L,filename)!=LUA_OK) fatal(lua_tostring(L,-1));
+  /* '.leav' files are compiled in the Leaves dialect; everything else
+     stays plain Lua, so existing Lua sources compile unchanged */
+  const char *mode = "bt";
+  if (leaves_forced > 0)
+    mode = "lbt";
+  else if (leaves_forced < 0)
+    mode = "bt";
+  else if (filename != NULL) {
+    size_t len = strlen(filename);
+    if (len > 5 && strcmp(filename + len - 5, ".leav") == 0)
+      mode = "lbt";
+  }
+  if (luaL_loadfilex(L,filename,mode)!=LUA_OK) fatal(lua_tostring(L,-1));
  }
  f=combine(L,argc);
  if (listing) luaU_print(f,listing>1);

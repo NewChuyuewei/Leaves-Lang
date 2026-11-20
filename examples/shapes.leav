@@ -1,0 +1,17 @@
+class Shape
+  function init(name) self.name = name end
+  function describe() return self.name end
+  static function kind() return 'shape' end
+end
+
+class Square extends Shape
+  function init(side)
+    Shape.init(self, 'square')
+    self.side = side
+  end
+  function area() return self.side * self.side end
+end
+
+local square = Square(5)
+print(square:describe(), square:area())
+print(square:isa(Shape), Square.kind())

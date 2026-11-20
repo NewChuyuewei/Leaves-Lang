@@ -1,0 +1,52 @@
+class Shape
+  function init(n) self.n = n end
+  function area() return self.n end
+  static function kind() return 'shape' end
+end
+class Rect extends Shape
+  function init(self, n) Shape.init(self, n * 2) end
+end
+class Square extends Rect end
+local s = Square(7)
+assert(s:area() == 14)
+assert(Square.init == Rect.init)
+assert(s:isa(Square) and s:isa(Rect) and s:isa(Shape))
+assert(not Shape:isa(Square))
+assert(leaves.super(Square) == Rect and leaves.super(Shape) == nil)
+assert(leaves.super(s) == Rect)
+assert(leaves.typeof(s) == Square and leaves.typeof(Square) == Square)
+assert(leaves.typeof({}) == nil and leaves.typeof(4) == nil)
+assert(Square.kind() == 'shape' and s.kind == nil)
+assert(tostring(s):match('^Square: 0x'))
+assert(leaves.new(Square, 9).n == 18)
+class Empty end
+assert(leaves.typeof(Empty()) == Empty)
+class Returning
+  function init(...) self.n = select('#', ...); return 123 end
+end
+assert(Returning(1, nil, 3).n == 3)
+class Recursive
+  function init(n)
+    self.n = n
+    if n > 0 then self.child = Recursive(n - 1) end
+  end
+end
+assert(Recursive(3).child.child.n == 1)
+class Broken
+  function init() error('constructor failure') end
+end
+for i = 1, 100 do
+  assert(not pcall(Broken))
+end
+assert(Square(3).n == 6)
+local function factory(k)
+  class Local
+    function value() return k end
+  end
+  return Local
+end
+assert(factory(1)():value() == 1 and factory(2)():value() == 2)
+local cfg = {class = 'yes', extends = 42}
+assert(cfg.class == 'yes' and cfg.extends == 42)
+collectgarbage('collect')
+print('objects OK')
