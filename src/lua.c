@@ -23,11 +23,14 @@
 
 
 #if !defined(LUA_PROGNAME)
-#define LUA_PROGNAME		"lua"
+#define LUA_PROGNAME		"leav"
 #endif
 
 #if !defined(LUA_INIT_VAR)
-#define LUA_INIT_VAR		"LUA_INIT"
+#define LUA_INIT_VAR		"LEAVES_INIT"
+#endif
+#if !defined(LUA_INIT_VAR_COMPAT)
+#define LUA_INIT_VAR_COMPAT	"LUA_INIT"  /* still honoured, for Lua users */
 #endif
 
 /* Name of the environment variable with the name of the readline library */
@@ -103,6 +106,9 @@ static void print_usage (const char *badoption) {
   "  -v        show version information\n"
   "  -E        ignore environment variables\n"
   "  -W        turn warnings on\n"
+  "  -L        treat all chunks as Leaves (same as --leaves)\n"
+  "  --leaves  compile every chunk in the Leaves dialect\n"
+  "  --lua     compile every chunk as plain Lua (default)\n"
   "  --        stop handling options\n"
   "  -         stop handling options and execute stdin\n"
   ,
@@ -200,6 +206,38 @@ static void createargtable (lua_State *L, char **argv, int argc, int script) {
 }
 
 
+/*
+** Leaves dialect selection.
+**
+** A chunk is compiled as Leaves when its name ends in ".leav", or when
+** the user asked for it explicitly (--leaves / -L).  Everything else
+** stays plain Lua, so existing code is never affected.
+*/
+#define LEAVES_EXT	".leav"
+
+static int leaves_forced = 0;  /* set by --leaves / --lua */
+
+
+/* mode string handed to the loader for the current chunk */
+static const char *chunkmode (const char *name) {
+  if (leaves_forced)
+    return leaves_forced > 0 ? "lbt" : "bt";
+  if (name != NULL) {
+    size_t len = strlen(name);
+    size_t extlen = strlen(LEAVES_EXT);
+    if (len > extlen && strcmp(name + len - extlen, LEAVES_EXT) == 0)
+      return "lbt";  /* .leav file: Leaves dialect */
+  }
+  return "bt";  /* plain Lua */
+}
+
+
+/* mode used for chunks typed at the prompt */
+static const char *replmode (void) {
+  return leaves_forced > 0 ? "lt" : "t";
+}
+
+
 static int dochunk (lua_State *L, int status) {
   if (status == LUA_OK) status = docall(L, 0, 0);
   return report(L, status);
@@ -207,12 +245,13 @@ static int dochunk (lua_State *L, int status) {
 
 
 static int dofile (lua_State *L, const char *name) {
-  return dochunk(L, luaL_loadfilex(L, name, "bt"));
+  return dochunk(L, luaL_loadfilex(L, name, chunkmode(name)));
 }
 
 
 static int dostring (lua_State *L, const char *s, const char *name) {
-  return dochunk(L, luaL_loadbufferx(L, s, strlen(s), name, "t"));
+  return dochunk(L, luaL_loadbufferx(L, s, strlen(s), name,
+                                    leaves_forced > 0 ? "lt" : "t"));
 }
 
 
@@ -266,7 +305,7 @@ static int handle_script (lua_State *L, char **argv) {
   const char *fname = argv[0];
   if (strcmp(fname, "-") == 0 && strcmp(argv[-1], "--") != 0)
     fname = NULL;  /* stdin */
-  status = luaL_loadfilex(L, fname, "bt");
+  status = luaL_loadfilex(L, fname, chunkmode(fname));
   if (status == LUA_OK) {
     int n = pushargs(L);  /* push arguments to script */
     status = docall(L, n, LUA_MULTRET);
@@ -306,12 +345,21 @@ static int collectargs (char **argv, int *first) {
     if (argv[i][0] != '-')  /* not an option? */
         return args;  /* stop handling options */
     switch (argv[i][1]) {  /* else check option */
-      case '-':  /* '--' */
-        if (argv[i][2] != '\0')  /* extra characters after '--'? */
-          return has_error;  /* invalid option */
-        /* if there is a script name, it comes after '--' */
-        *first = (argv[i + 1] != NULL) ? i + 1 : 0;
-        return args;
+      case '-':  /* '--' or a long option */
+        if (argv[i][2] == '\0') {  /* plain '--' */
+          /* if there is a script name, it comes after '--' */
+          *first = (argv[i + 1] != NULL) ? i + 1 : 0;
+          return args;
+        }
+        if (strcmp(argv[i], "--leaves") == 0) {
+          leaves_forced = 1;
+          break;
+        }
+        if (strcmp(argv[i], "--lua") == 0) {
+          leaves_forced = -1;
+          break;
+        }
+        return has_error;  /* unknown long option */
       case '\0':  /* '-' */
         return args;  /* script "name" is '-' */
       case 'E':
@@ -322,6 +370,11 @@ static int collectargs (char **argv, int *first) {
       case 'W':
         if (argv[i][2] != '\0')  /* extra characters? */
           return has_error;  /* invalid option */
+        break;
+      case 'L':
+        if (argv[i][2] != '\0')  /* extra characters? */
+          return has_error;  /* invalid option */
+        leaves_forced = 1;  /* short form of --leaves */
         break;
       case 'i':
         args |= has_i;  /* (-i implies -v) *//* FALLTHROUGH */
@@ -390,11 +443,22 @@ static char *no_getenv (const char *name) {
 
 
 static int handle_luainit (lua_State *L) {
+  /* Accepted, in order: LEAVES_INIT_5_5, LEAVES_INIT, LUA_INIT_5_5,
+     LUA_INIT.  The LUA_INIT spellings are kept so that existing Lua
+     setups (and the upstream test suite) keep working. */
   const char *name = "=" LUA_INITVARVERSION;
   const char *init = l_getenv(name + 1);
   if (init == NULL) {
     name = "=" LUA_INIT_VAR;
-    init = l_getenv(name + 1);  /* try alternative name */
+    init = l_getenv(name + 1);
+  }
+  if (init == NULL) {
+    name = "=" LUA_INIT_VAR_COMPAT LUA_VERSUFFIX;
+    init = l_getenv(name + 1);
+  }
+  if (init == NULL) {
+    name = "=" LUA_INIT_VAR_COMPAT;
+    init = l_getenv(name + 1);
   }
   if (init == NULL) return LUA_OK;
   else if (init[0] == '@')
@@ -609,7 +673,8 @@ static int pushline (lua_State *L, int firstline) {
 static int addreturn (lua_State *L) {
   const char *line = lua_tostring(L, -1);  /* original line */
   const char *retline = lua_pushfstring(L, "return %s;", line);
-  int status = luaL_loadbufferx(L, retline, strlen(retline), "=stdin", "t");
+  int status = luaL_loadbufferx(L, retline, strlen(retline), "=stdin",
+                                replmode());
   if (status == LUA_OK)
     lua_remove(L, -2);  /* remove modified line */
   else
@@ -640,7 +705,8 @@ static int multiline (lua_State *L) {
   const char *line = lua_tolstring(L, 1, &len);  /* get first line */
   checklocal(line);
   for (;;) {  /* repeat until gets a complete statement */
-    int status = luaL_loadbufferx(L, line, len, "=stdin", "t");  /* try it */
+    int status = luaL_loadbufferx(L, line, len, "=stdin",
+                                  replmode());  /* try it */
     if (!incomplete(L, status) || !pushline(L, 0))
       return status;  /* should not or cannot try to add continuation line */
     lua_remove(L, -2);  /* remove error message (from incomplete line) */

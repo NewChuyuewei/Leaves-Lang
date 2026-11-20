@@ -21,6 +21,7 @@
 #include "ldo.h"
 #include "lfunc.h"
 #include "lgc.h"
+#include "llex.h"
 #include "lmem.h"
 #include "lobject.h"
 #include "lopcodes.h"
@@ -1147,7 +1148,8 @@ static void f_parser (lua_State *L, void *ud) {
   }
   else {
     checkmode(L, mode, "text");
-    cl = luaY_parser(L, p->z, anchor, &p->buff, &p->dyd, p->name, c);
+    cl = luaY_parser(L, p->z, anchor, &p->buff, &p->dyd, p->name, c,
+                     strchr(mode, LUA_MODE_LEAVES) != NULL);
   }
   L->top.p = restorestack(L, otop);  /* restore stack */
   setclLvalue2s(L, L->top.p++, cl);  /* push closure */

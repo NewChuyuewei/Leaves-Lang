@@ -1,6 +1,85 @@
+Leaves — 基于 Lua 5.5.1 的渐进式语言扩展
+=========================================
 
-This is Lua 5.5.1, released on 24 Jul 2026.
+当前是开发中的第一阶段：品牌化、可选方言、基础 OOP。
+保留 Lua VM、GC、C API 与字节码格式；尚不是全部规划特性的正式版本。
+Lua 原始文档与版权许可保留在 doc/ 和 src/lua.h 中。
 
-For installation instructions, license details, and
-further information about Lua, see doc/readme.html.
+构建和测试
+----------
+  make -j4
+  make check                       # 需要 Python 3
+  ./src/leav examples/shapes.leav
+  ./src/leavc -o shapes.luac examples/shapes.leav
+  ./src/leav shapes.luac
+  make install INSTALL_TOP=/absolute/install/path
 
+产物为 src/leav、src/leavc、src/liblua.a。
+安装时头文件、库名、模块路径仍沿用 Lua，以便复用现有 C 扩展；
+安装的 lua.1 / luac.1 仍是上游手册，Leaves 专有用法以本文为准。
+
+兼容模式
+--------
+* 普通 .lua 文件、-e、标准输入和 REPL 默认使用 Lua 语法。
+* .leav 主文件自动启用 Leaves 语法。
+* --leaves（解释器也支持 -L）显式启用方言。
+* --lua 强制使用 Lua 语法，包括 .leav 文件。
+* leavc 支持 --leaves / --lua，默认按输入文件后缀判断。
+* 嵌入式 C 调用可给 luaL_loadfilex / luaL_loadbufferx 的 mode 加 'l'，
+  例如 "lbt"；不传 'l' 时仍按 Lua 语法解析。
+* load/loadfile/require 不根据 .leav 后缀自动切换方言；目前可显式调用
+  loadfile(path, "lbt") 加载 Leaves 模块，并使用 Lua 的 return 导出表。
+
+Leaves 标准库 leaves 会随标准库一起打开；这是新增的全局库，
+不是“与上游运行环境逐字节完全一致”。新语法默认关闭。
+
+当前 class 语法
+--------------
+  class Shape
+    function init(name) self.name = name end
+    function describe() return self.name end
+    static function kind() return "shape" end
+  end
+
+  class Square extends Shape
+    function init(side)
+      Shape.init(self, "square")
+      self.side = side
+    end
+    function area() return self.side * self.side end
+  end
+
+  local s = Square(5)
+  assert(s:area() == 25)
+  assert(s:isa(Shape))
+  assert(Square.kind() == "shape")
+  assert(s.kind == nil)             -- 静态方法不会泄漏到实例
+
+* class 声明词法局部变量；extends 后可接表达式；类体前 do 可选。
+* 类体目前只支持 function 和 static function 方法声明。
+* 实例方法隐式添加 self；显式写 function init(self, ...) 也受支持。
+* Cls(...) 创建实例并调用继承链中的 init；忽略 init 的返回值。
+* 父构造器不自动调用，使用 Base.init(self, ...) 显式调用。
+* static 是类体中的上下文修饰符，不是全局关键字。
+* Leaves 模式下 class/extends 是关键字，但允许 cfg.class 等字段访问。
+* __leaves_* 是保留的实现字段，不要修改；目前类不是封闭或安全沙箱。
+* 实例方法在声明时写入类表和实例视图；运行时直接给 Cls.method 赋值
+  不会同步更新实例视图。动态方法替换尚未提供稳定 API。
+
+运行时辅助 API
+--------------
+  leaves.class(name [, base])       创建类（无需方言也可调用）
+  leaves.new(Cls, ...)              等价于 Cls(...)
+  leaves.typeof(value)              返回实例的类 / 类本身；非对象返回 nil
+  leaves.super(Cls_or_instance)     返回直接父类；根类返回 nil
+  leaves.isa(value, Cls)            检查继承关系，也可 value:isa(Cls)
+
+后续阶段（尚未实现）
+--------------------
+1. 接口 implements、private 字段、import/export 声明式模块。
+2. 字符串插值、管道、箭头函数、安全导航。
+3. 可选类型标注、模式匹配和解构。
+4. 可重复性能基准和有数据支撑的优化。
+
+目前不能宣称性能优于 Lua：VM 尚未优化，类构造和继承有额外成本。
+测试命令 make check 覆盖仓库内回归用例，不等同于通过全部上游 Lua 测试。

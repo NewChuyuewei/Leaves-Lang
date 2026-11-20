@@ -13,7 +13,25 @@
 #include <stddef.h>
 
 
-#define LUA_COPYRIGHT	LUA_RELEASE "  Copyright (C) 1994-2026 Lua.org, PUC-Rio"
+/*
+** Leaves is a language built on top of Lua 5.5.1.  The upstream version
+** macros are kept intact (they describe the runtime Leaves uses), while
+** these describe the language itself.
+*/
+#define LEAVES_VERSION_MAJOR	1
+#define LEAVES_VERSION_MINOR	0
+#define LEAVES_VERSION_RELEASE	0
+
+#define LUAI_LEAVES_TOSTRAUX(x)	#x
+#define LUAI_LEAVES_TOSTR(x)	LUAI_LEAVES_TOSTRAUX(x)
+#define LEAVES_VERSION		"Leaves " \
+    LUAI_LEAVES_TOSTR(LEAVES_VERSION_MAJOR) "." \
+    LUAI_LEAVES_TOSTR(LEAVES_VERSION_MINOR) "." \
+    LUAI_LEAVES_TOSTR(LEAVES_VERSION_RELEASE)
+
+#define LEAVES_RELEASE		LEAVES_VERSION " (on " LUA_RELEASE ")"
+
+#define LUA_COPYRIGHT	LEAVES_RELEASE "  Copyright (C) 1994-2026 Lua.org, PUC-Rio"
 #define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo, W. Celes"
 
 

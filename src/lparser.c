@@ -163,6 +163,23 @@ static void codestring (expdesc *e, TString *s) {
 }
 
 
+/*
+** Leaves keywords are reserved words, but it would be annoying (and
+** needlessly incompatible with data tables) if they could not also be
+** used as field names.  Inside '.', ':' and '{name = ...}' a keyword is
+** therefore accepted and treated as the string with the same spelling.
+*/
+static TString *str_checkfieldname (LexState *ls) {
+  if (ls_isleaves(ls) && (ls->t.token == TK_CLASS || ls->t.token == TK_EXTENDS)) {
+    const char *spelling = (ls->t.token == TK_CLASS) ? "class" : "extends";
+    TString *ts = luaX_newstring(ls, spelling, strlen(spelling));
+    luaX_next(ls);
+    return ts;
+  }
+  return str_checkname(ls);
+}
+
+
 static void codename (LexState *ls, expdesc *e) {
   codestring(e, str_checkname(ls));
 }
@@ -892,7 +909,7 @@ static void fieldsel (LexState *ls, expdesc *v) {
   expdesc key;
   luaK_exp2anyregup(fs, v);
   luaX_next(ls);  /* skip the dot or colon */
-  codename(ls, &key);
+  codestring(&key, str_checkfieldname(ls));
   luaK_indexed(fs, v, &key);
 }
 
@@ -940,8 +957,10 @@ static void recfield (LexState *ls, ConsControl *cc) {
   FuncState *fs = ls->fs;
   lu_byte reg = ls->fs->freereg;
   expdesc tab, key, val;
-  if (ls->t.token == TK_NAME)
-    codename(ls, &key);
+  if (ls->t.token == TK_NAME ||
+      (ls_isleaves(ls) && (ls->t.token == TK_CLASS ||
+                           ls->t.token == TK_EXTENDS)))
+    codestring(&key, str_checkfieldname(ls));
   else  /* ls->t.token == '[' */
     yindex(ls, &key);
   cc->nh++;
@@ -1004,6 +1023,14 @@ static void field (LexState *ls, ConsControl *cc) {
       break;
     }
     default: {
+      /* In Leaves mode a keyword may start a record field: {class = 1} */
+      if (ls_isleaves(ls) && (ls->t.token == TK_CLASS ||
+                              ls->t.token == TK_EXTENDS)) {
+        if (luaX_lookahead(ls) != '=')
+          luaX_syntaxerror(ls, "table field name expected");
+        recfield(ls, cc);  /* re-reads the (already peeked) keyword */
+        break;
+      }
       listfield(ls, cc);
       break;
     }
@@ -1110,6 +1137,15 @@ static void body (LexState *ls, expdesc *e, int ismethod, int line) {
   new_fs.f->linedefined = line;
   open_func(ls, &new_fs, &bl);
   checknext(ls, '(');
+  if (ismethod == 2) {
+    /* Leaves method: inject 'self' only when the author did not write it,
+       so both 'function m(x)' and 'function m(self, x)' mean one thing. */
+    if (!(ls->t.token == TK_NAME &&
+          strcmp(getstr(ls->t.seminfo.ts), "self") == 0))
+      ismethod = 1;
+    else
+      ismethod = 0;
+  }
   if (ismethod) {
     new_localvarliteral(ls, "self");  /* create 'self' parameter */
     adjustlocalvars(ls, 1);
@@ -2049,6 +2085,190 @@ static void retstat (LexState *ls) {
 }
 
 
+/* ======================================================================
+** Leaves: class declarations
+**
+** A class declaration is pure syntactic sugar: it introduces a lexical
+** local holding the class object and then assigns methods into it.  All
+** the machinery for instances, inheritance and construction lives in the
+** C runtime (lleaveslib.c), so the VM and its bytecode are untouched.
+**
+**   class NAME [extends exp] [do]
+**     function  m(params) ... end     -- instance method (implicit 'self')
+**     static function  f(params) ... end
+**   end
+**
+** becomes, roughly:
+**
+**   local NAME = __leaves_class("NAME", exp)
+**   NAME.m = function(self, params) ... end
+**   NAME.f = function(params) ... end
+** ====================================================================== */
+
+#define LEAVES_CLASS_FN "__leaves_class"
+#define LEAVES_STATICS_FN "__leaves_statics"
+#define LEAVES_VIEW_FN "__leaves_view"
+
+
+/*
+** Build the expression 'NAME.field', where NAME is the class variable (a
+** local, an upvalue, or a global) and 'field' is a constant string key.
+*/
+/* Where a class member is stored. */
+typedef enum { MEMBER_CLASS, MEMBER_VIEW, MEMBER_STATICS } MemberDest;
+
+
+/*
+** Build the expression '<class>[destination][field]' for the class
+** variable 'cname'.  MEMBER_CLASS addresses the class table itself (static
+** members and the public copy of instance methods), MEMBER_VIEW addresses
+** the table instances index.
+*/
+static void classfield (LexState *ls, TString *cname, TString *field,
+                        MemberDest dest, expdesc *v) {
+  FuncState *fs = ls->fs;
+  expdesc key;
+  buildvar(ls, cname, v);        /* the class variable itself */
+  luaK_exp2anyregup(fs, v);
+  luaK_exp2anyreg(fs, v);
+  lua_assert(v->k == VNONRELOC);
+  init_exp(v, VNONRELOC, v->u.info);  /* drop any index state */
+  if (dest != MEMBER_CLASS) {
+    const char *field2 = (dest == MEMBER_VIEW) ? LEAVES_VIEW_FN
+                                               : LEAVES_STATICS_FN;
+    TString *st = luaX_newstring(ls, field2, strlen(field2));
+    codestring(&key, st);
+    luaK_indexed(fs, v, &key);        /* v = NAME.__leaves_view/statics */
+    /* An expdesc holds one index at a time, so materialise it before
+       indexing again (this is what makes 'a.b.c' work elsewhere). */
+    luaK_exp2anyreg(fs, v);
+    init_exp(v, VNONRELOC, v->u.info);
+  }
+  codestring(&key, field);
+  luaK_indexed(fs, v, &key);          /* v = ...NAME.field */
+}
+
+
+/*
+** Contextual check for the 'static' modifier.  It is *not* a reserved
+** word: it only means "static member" when followed by 'function', so
+** code like 'static = 1' keeps working.
+**
+** luaX_lookahead() leaves a pending token behind, so this must be called
+** at most once per token: 'ispending' reports the already-peeked result.
+*/
+static int teststatic (LexState *ls, int *ispending) {
+  *ispending = 0;
+  if (ls->t.token != TK_NAME)
+    return 0;
+  if (strcmp(getstr(ls->t.seminfo.ts), "static") != 0)
+    return 0;
+  {
+    int la = luaX_lookahead(ls);  /* peek past 'static' */
+    if (la == TK_FUNCTION) {
+      *ispending = 1;
+      luaX_next(ls);  /* consume 'static', leaving 'function' current */
+      return 1;
+    }
+    else {  /* not a modifier: the peeked token must stay pending */
+      *ispending = 1;
+      return 0;
+    }
+  }
+}
+
+
+/*
+** Parse one member of a class body:
+**   member -> [STATIC] FUNCTION NAME body
+*/
+static void classmember (LexState *ls, TString *cname, int isstatic) {
+  FuncState *fs = ls->fs;
+  expdesc v, b;
+  TString *mname;
+  int line;
+  lua_assert(ls->t.token == TK_FUNCTION);
+  line = ls->linenumber;
+  luaX_next(ls);  /* skip 'function' */
+  mname = str_checkname(ls);
+
+  if (isstatic) {
+    /* A static member lives in NAME.__leaves_statics, never on the class
+       table itself: instances index the view, not the class, and the
+       statics table lets lookups chain to the superclass.  No 'self'. */
+    classfield(ls, cname, mname, MEMBER_STATICS, &v);
+    body(ls, &b, 0, line);
+    luaK_storevar(fs, &v, &b);
+  }
+  else {
+    /* An instance method gets an implicit 'self' and is stored twice: in
+       the class' view (what instances index) and on the class itself, so
+       that explicit dispatch ('Shape.init(self, ...)') works too. */
+    expdesc v2, b2;
+    classfield(ls, cname, mname, MEMBER_VIEW, &v);
+    body(ls, &b, 2, line);
+    luaK_storevar(fs, &v, &b);
+    classfield(ls, cname, mname, MEMBER_CLASS, &v2);
+    b2 = b;  /* the closure is still in its register */
+    luaK_storevar(fs, &v2, &b2);
+  }
+  luaK_fixline(fs, line);
+  fs->freereg = luaY_nvarstack(fs);  /* members leave no live registers */
+}
+
+
+static void classstat (LexState *ls, int line) {
+  /* classstat -> CLASS NAME [EXTENDS suffixedexp] [DO] {member} END */
+  FuncState *fs = ls->fs;
+  TString *cname;
+  expdesc sup, f, res, v;
+  int vidx;
+  int base;
+
+  luaX_next(ls);  /* skip 'class' */
+  cname = str_checkname(ls);
+  vidx = new_localvar(ls, cname);  /* the class is a lexical local */
+  adjustlocalvars(ls, 1);
+  luaK_reserveregs(fs, 1);  /* room for the class value */
+
+  if (testnext(ls, TK_EXTENDS))
+    expr(ls, &sup);  /* superclass expression */
+  else
+    init_exp(&sup, VNIL, 0);
+
+  /* emit: NAME = __leaves_class("NAME", sup) */
+  base = fs->freereg;
+  buildglobal(ls, luaX_newstring(ls, LEAVES_CLASS_FN,
+                                 sizeof(LEAVES_CLASS_FN) - 1), &f);
+  luaK_exp2nextreg(fs, &f);  /* function, in 'base' */
+  codestring(&res, cname);
+  luaK_exp2nextreg(fs, &res);  /* class name, in 'base'+1 */
+  luaK_exp2nextreg(fs, &sup);  /* superclass, in 'base'+2 */
+  init_exp(&res, VCALL, luaK_codeABC(fs, OP_CALL, base, 3, 2));
+  luaK_fixline(fs, line);
+  fs->freereg = cast_byte(base + 1);  /* call returns exactly one value */
+  luaK_setoneret(fs, &res);  /* VCALL -> VNONRELOC */
+  init_var(fs, &v, vidx);
+  luaK_storevar(fs, &v, &res);  /* store result into the class local */
+  fs->freereg = luaY_nvarstack(fs);
+
+  testnext(ls, TK_DO);  /* optional 'do' */
+  for (;;) {
+    int isstatic, ispending;
+    if (ls->t.token == TK_FUNCTION)
+      isstatic = 0;
+    else if (teststatic(ls, &ispending))
+      isstatic = 1;
+    else if (ispending || block_follow(ls, 0) || ls->t.token == TK_EOS)
+      break;  /* a peeked, non-member token or the end of the body */
+    else
+      luaX_syntaxerror(ls, "function declaration expected in class body");
+    classmember(ls, cname, isstatic);
+  }
+  check_match(ls, TK_END, TK_CLASS, line);
+}
+
+
 static void statement (LexState *ls) {
   int line = ls->linenumber;  /* may be needed for error messages */
   enterlevel(ls);
@@ -2081,6 +2301,10 @@ static void statement (LexState *ls) {
     }
     case TK_FUNCTION: {  /* stat -> funcstat */
       funcstat(ls, line);
+      break;
+    }
+    case TK_CLASS: {  /* stat -> classstat (Leaves mode only) */
+      classstat(ls, line);
       break;
     }
     case TK_LOCAL: {  /* stat -> localstat */
@@ -2169,7 +2393,8 @@ static void mainfunc (LexState *ls, FuncState *fs) {
 
 
 LClosure *luaY_parser (lua_State *L, ZIO *z, Table *anchor, Mbuffer *buff,
-                       Dyndata *dyd, const char *name, int firstchar) {
+                       Dyndata *dyd, const char *name, int firstchar,
+                       int leaves) {
   LexState lexstate;
   FuncState funcstate;
   LClosure *cl;
@@ -2183,7 +2408,7 @@ LClosure *luaY_parser (lua_State *L, ZIO *z, Table *anchor, Mbuffer *buff,
   lexstate.buff = buff;
   lexstate.dyd = dyd;
   dyd->actvar.n = dyd->gt.n = dyd->label.n = 0;
-  luaX_setinput(L, &lexstate, z, funcstate.f->source, firstchar);
+  luaX_setinput(L, &lexstate, z, funcstate.f->source, firstchar, leaves);
   mainfunc(&lexstate, &funcstate);
   lua_assert(!funcstate.prev && funcstate.nups == 1 && !lexstate.fs);
   /* all scopes should be correctly finished */

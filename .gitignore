@@ -1,0 +1,9 @@
+.work/
+/src/*.o
+/src/*.a
+/src/leav
+/src/leavc
+/src/lua
+/src/luac
+/luac.out
+/install/

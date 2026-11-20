@@ -39,7 +39,7 @@ RM= rm -f
 PLATS= guess aix bsd c89 freebsd generic ios linux linux-readline macosx mingw posix solaris
 
 # What to install.
-TO_BIN= lua luac
+TO_BIN= leav leavc
 TO_INC= lua.h luaconf.h lualib.h lauxlib.h lua.hpp
 TO_LIB= liblua.a
 TO_MAN= lua.1 luac.1
@@ -104,3 +104,10 @@ pc:
 .PHONY: all $(PLATS) help test clean install uninstall local dummy echo pc
 
 # (end of Makefile)
+
+# Repository regression suite (requires Python 3).
+check:
+	$(MAKE) all
+	python3 test/leaves/run.py
+
+.PHONY: check
