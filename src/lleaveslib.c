@@ -149,6 +149,15 @@ static void push_instance (lua_State *L, int clsidx) {
 }
 
 
+/* Shared completion for calls that may yield. The requested single
+** result is already on top, either the saved instance or leaves.new's
+** call result. Constructor return values are discarded by lua_callk. */
+static int objectcont (lua_State *L, int status, lua_KContext ctx) {
+  (void)L; (void)status; (void)ctx;
+  return 1;
+}
+
+
 /* Keep the result below the constructor call frame: no registry roots are
 ** needed, including when init raises an error or recursively constructs. */
 static int class_call (lua_State *L) {
@@ -162,7 +171,7 @@ static int class_call (lua_State *L) {
   lua_insert(L, 1);                   /* inst, class, args..., init */
   lua_insert(L, 2);                   /* inst, init, class, args... */
   lua_copy(L, 1, 3);                  /* inst, init, inst, args... */
-  lua_call(L, nargs + 1, 0);          /* inst survives below the frame */
+  lua_callk(L, nargs + 1, 0, 0, objectcont);  /* instance survives yields */
   return 1;
 }
 
@@ -352,7 +361,41 @@ static int leaves_isa (lua_State *L) {
 */
 static int leaves_new (lua_State *L) {
   luaL_checkany(L, 1);
-  lua_call(L, lua_gettop(L) - 1, 1);
+  lua_callk(L, lua_gettop(L) - 1, 1, 0, objectcont);
+  return 1;
+}
+
+
+/*
+** leaves.setmethod(Cls, name, function_or_nil) -> Cls
+** Keep explicit class dispatch and the instance view in sync. Removing
+** an own method reveals inherited members; existing closures are unchanged.
+*/
+static int leaves_setmethod (lua_State *L) {
+  size_t len;
+  const char *name;
+  luaL_checktype(L, 1, LUA_TTABLE);
+  luaL_checktype(L, 2, LUA_TSTRING);
+  luaL_checkany(L, 3);
+  luaL_argcheck(L, lua_isfunction(L, 3) || lua_isnil(L, 3), 3,
+                   "function or nil expected");
+  name = lua_tolstring(L, 2, &len);
+  luaL_argcheck(L, !(len >= 9 && memcmp(name, "__leaves_", 9) == 0),
+                   2, "reserved member name");
+  lua_settop(L, 3);
+  rawgetfield(L, 1, CLASS_MARK);
+  luaL_argcheck(L, lua_type(L, -1) == LUA_TSTRING, 1,
+                   "class expected (not an instance)");
+  lua_pop(L, 1);
+  rawgetfield(L, 1, CLASS_VIEW);
+  luaL_argcheck(L, lua_istable(L, -1), 1, "class has no member view");
+  lua_pushvalue(L, 2);
+  lua_pushvalue(L, 3);
+  lua_rawset(L, -3);  /* class view */
+  lua_pushvalue(L, 2);
+  lua_pushvalue(L, 3);
+  lua_rawset(L, 1);   /* explicit Cls.method dispatch */
+  lua_settop(L, 1);
   return 1;
 }
 
@@ -402,6 +445,7 @@ static const luaL_Reg leaves_funcs[] = {
   {"new", leaves_new},
   {"typeof", leaves_typeof},
   {"super", leaves_super},
+  {"setmethod", leaves_setmethod},
   {"isa", leaves_isa},
   {NULL, NULL}
 };

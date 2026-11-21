@@ -19,6 +19,10 @@ def run(args, ok=True, contains=None):
 
 
 run([LEAV, str(ROOT / 'test/leaves/objects.leav')], contains='objects OK')
+for name, message in [('updates', 'method updates OK'),
+                      ('coroutines', 'constructor coroutines OK'),
+                      ('parents', 'parent expressions OK')]:
+    run([LEAV, str(ROOT / f'test/leaves/{name}.leav')], contains=message)
 run([LEAV, str(ROOT / 'test/leaves/constructors.leav')], contains='constructors OK')
 run([LEAV, str(ROOT / 'test/leaves/locals.leav')], contains='class locals OK')
 run([LEAV, '--lua', str(ROOT / 'test/leaves/locals.leav')], ok=False)
@@ -53,6 +57,18 @@ with tempfile.TemporaryDirectory() as tmp:
     run([LEAVC, '-s', '-o', str(constructors),
          str(ROOT / 'test/leaves/constructors.leav')])
     run([LEAV, str(constructors)], contains='constructors OK')
+    for name, message in [('updates', 'method updates OK'),
+                          ('coroutines', 'constructor coroutines OK'),
+                          ('parents', 'parent expressions OK')]:
+        for strip in (False, True):
+            output = tmp / f'{name}-{strip}.luac'
+            run([LEAVC, *(['-s'] if strip else []), '-o', str(output),
+                 str(ROOT / f'test/leaves/{name}.leav')])
+            run([LEAV, str(output)], contains=message)
+    run([LEAV, '--lua', '-e',
+         'local C = leaves.class("C"); '
+         'leaves.setmethod(C, "get", function(self) return 7 end); '
+         'assert(C():get() == 7)'])
     forced = tmp / 'forced.lua'
     forced.write_text('class A end; assert(A():isa(A))')
     run([LEAV, str(forced)], ok=False)
