@@ -19,6 +19,7 @@ def run(args, ok=True, contains=None):
 
 
 run([LEAV, str(ROOT / 'test/leaves/objects.leav')], contains='objects OK')
+run([LEAV, str(ROOT / 'test/leaves/constructors.leav')], contains='constructors OK')
 run([LEAV, str(ROOT / 'test/leaves/locals.leav')], contains='class locals OK')
 run([LEAV, '--lua', str(ROOT / 'test/leaves/locals.leav')], ok=False)
 run([LEAV, '--leaves', '-e',
@@ -48,6 +49,10 @@ with tempfile.TemporaryDirectory() as tmp:
     stripped = tmp / 'stripped.luac'
     run([LEAVC, '-s', '-o', str(stripped), str(ROOT / 'test/leaves/locals.leav')])
     run([LEAV, str(stripped)], contains='class locals OK')
+    constructors = tmp / 'constructors.luac'
+    run([LEAVC, '-s', '-o', str(constructors),
+         str(ROOT / 'test/leaves/constructors.leav')])
+    run([LEAV, str(constructors)], contains='constructors OK')
     forced = tmp / 'forced.lua'
     forced.write_text('class A end; assert(A():isa(A))')
     run([LEAV, str(forced)], ok=False)
