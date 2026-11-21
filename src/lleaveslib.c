@@ -38,6 +38,9 @@
 #define CLASS_OWNER "__leaves_class"  /* instance metatable -> owning class */
 #define VIEW_PARENT "__leaves_parent_view"
 
+/* BND-003: maximum table nodes examined by each explicit raw chain walk. */
+#define MAX_INHERITANCE 1000
+
 
 
 
@@ -56,6 +59,15 @@ static void rawgetfield (lua_State *L, int idx, const char *name) {
   idx = lua_absindex(L, idx);
   lua_pushstring(L, name);
   lua_rawget(L, idx);
+}
+
+
+/* BND-003/004: check before visiting a node; bounded even for cycles. */
+static void checkdepth (lua_State *L, int *depth) {
+  if (*depth >= MAX_INHERITANCE)
+    luaL_error(L, "inheritance chain is too deep (limit %d; cycle possible)",
+                  MAX_INHERITANCE);
+  (*depth)++;
 }
 
 
@@ -186,6 +198,7 @@ static int class_call (lua_State *L) {
 ** inheritance chain, which never re-enters class_index.
 */
 static int class_index (lua_State *L) {
+  int depth = 0;
   luaL_checktype(L, 1, LUA_TTABLE);
   lua_settop(L, 2);
 
@@ -197,11 +210,12 @@ static int class_index (lua_State *L) {
     if (!lua_isnil(L, -1))
       return 1;
   }
-  lua_pop(L, 1);
+  lua_settop(L, 2);  /* discard the static table and missing result */
 
   /* 2. instance methods through the view chain */
   rawgetfield(L, 1, CLASS_VIEW);
   while (lua_istable(L, -1)) {
+    checkdepth(L, &depth);
     lua_pushvalue(L, 2);
     lua_rawget(L, -2);
     if (!lua_isnil(L, -1))
@@ -211,12 +225,21 @@ static int class_index (lua_State *L) {
     lua_remove(L, -2);
   }
 
-  /* 3. last resort: the superclass' own members */
+  /* BND-002: statics and views were already searched in full. Only
+     ancestor class fields remain; do not re-enter class_index per parent.
+     Stack during either raw walk: receiver, key, current [, result]. */
+  lua_settop(L, 2);
+  depth = 0;
   rawgetfield(L, 1, CLASS_SUPER);
-  if (lua_istable(L, -1)) {
+  while (lua_istable(L, -1)) {
+    checkdepth(L, &depth);
     lua_pushvalue(L, 2);
-    lua_gettable(L, -2);
-    return 1;
+    lua_rawget(L, -2);
+    if (!lua_isnil(L, -1))
+      return 1;
+    lua_pop(L, 1);
+    rawgetfield(L, -1, CLASS_SUPER);
+    lua_remove(L, -2);
   }
   lua_pushnil(L);
   return 1;
@@ -340,15 +363,15 @@ static int leaves_isa (lua_State *L) {
   pushclass(L, 1);  /* the class of the receiver */
   luaL_checktype(L, 2, LUA_TTABLE);
   while (lua_istable(L, -1)) {
-    int found = lua_rawequal(L, -1, 2);
+    int found;
+    checkdepth(L, &depth);
+    found = lua_rawequal(L, -1, 2);
     if (found) {
       lua_pushboolean(L, 1);
       return 1;
     }
     rawgetfield(L, -1, CLASS_SUPER);
     lua_remove(L, -2);
-    if (++depth > 1000)
-      luaL_error(L, "inheritance chain is too deep (cycle?)");
   }
   lua_pushboolean(L, 0);
   return 1;

@@ -1,0 +1,78 @@
+-- BND-001: priority and false values are preserved.
+class Root
+  function method() return 'root method' end
+  static function tag() return 'root static' end
+end
+Root.flag = false
+Root.public = 'root field'
+class Mid extends Root end
+class Leaf extends Mid end
+assert(Leaf.flag == false and Leaf.public == 'root field')
+assert(Leaf.method == Root.method and Leaf.tag() == 'root static')
+assert(Leaf().tag == nil)
+Mid.public = 'mid field'
+assert(Leaf.public == 'mid field')
+leaves.setmethod(Mid, 'method', function() return 'mid method' end)
+assert(Leaf():method() == 'mid method')
+assert(Leaf.absent == nil)
+
+-- BND-002: normal deep missing-field lookup must not recurse in C.
+local deep = Root
+for i = 1, 300 do deep = leaves.class('Deep', deep) end
+assert(deep.absent == nil and deep.public == 'root field')
+assert(deep.flag == false and deep.method == Root.method)
+
+local function too_deep(f)
+  local ok, err = pcall(f)
+  assert(not ok and type(err) == 'string')
+  assert(err:find('inheritance chain is too deep', 1, true), err)
+end
+
+-- BND-003: exactly 1000 table nodes are allowed, the 1001st is not.
+local unrelated = leaves.class('Unrelated')
+local base = leaves.class('Boundary')
+base.token = 'ancestor'
+local chain = base
+for i = 2, 1000 do chain = leaves.class('Boundary', chain) end
+assert(chain.absent == nil and chain.token == 'ancestor')
+assert(chain:isa(base) and not chain:isa(unrelated))
+local overflow = leaves.class('Overflow', chain)
+too_deep(function() return overflow.absent end)
+too_deep(function() return overflow:isa(unrelated) end)
+
+-- Separate parent-field boundary: views/statics are deliberately unlinked
+-- so the final raw parent walk, rather than the view walk, reaches its limit.
+local head = leaves.class('Head')
+local tail = head
+for i = 1, 1000 do
+  local next_class = leaves.class('RawParent')
+  rawset(tail, '__leaves_super', next_class)
+  tail = next_class
+end
+tail.token = 'last allowed parent'
+assert(head.token == 'last allowed parent' and head.absent == nil)
+rawset(tail, '__leaves_super', leaves.class('OneMore'))
+too_deep(function() return head.absent end)
+rawset(tail, '__leaves_super', nil)
+
+-- BND-004: targeted fault injection, not supported application mutation.
+local view = rawget(Root, '__leaves_view')
+rawset(view, '__leaves_parent_view', view)
+too_deep(function() return Leaf.absent end)
+rawset(view, '__leaves_parent_view', nil)
+rawset(Root, '__leaves_super', Root)
+too_deep(function() return Leaf.absent end)
+too_deep(function() return Root:isa(unrelated) end)
+rawset(Root, '__leaves_super', nil)
+
+-- Two-node cycles exercise traversal rather than only self-link detection.
+rawset(Root, '__leaves_super', Mid)
+too_deep(function() return Leaf.absent end)
+rawset(Root, '__leaves_super', nil)
+
+-- BND-005: recovery, no hidden writes/cache poisoning after failure.
+assert(Leaf.absent == nil and Leaf.public == 'mid field')
+assert(deep.public == 'root field' and deep.absent == nil)
+assert(not Root:isa(unrelated))
+collectgarbage('collect')
+print('bounded lookup OK')

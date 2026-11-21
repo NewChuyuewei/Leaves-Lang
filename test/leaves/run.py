@@ -11,17 +11,22 @@ count = 0
 
 def run(args, ok=True, contains=None):
     global count
-    p = subprocess.run(args, text=True, capture_output=True, cwd=ROOT)
-    assert (p.returncode == 0) == ok, (args, p.stdout, p.stderr)
-    if contains:
-        assert contains in p.stdout, (args, p.stdout, p.stderr)
+    # BND-006: a hung process or signal termination is never an expected error.
+    p = subprocess.run(args, text=True, capture_output=True, cwd=ROOT, timeout=30)
+    if p.returncode < 0:
+        raise AssertionError(('process terminated by signal', args, p.stderr))
+    if (p.returncode == 0) != ok:
+        raise AssertionError((args, p.stdout, p.stderr))
+    if contains and contains not in p.stdout:
+        raise AssertionError((args, p.stdout, p.stderr))
     count += 1
 
 
 run([LEAV, str(ROOT / 'test/leaves/objects.leav')], contains='objects OK')
 for name, message in [('updates', 'method updates OK'),
                       ('coroutines', 'constructor coroutines OK'),
-                      ('parents', 'parent expressions OK')]:
+                      ('parents', 'parent expressions OK'),
+                      ('bounded', 'bounded lookup OK')]:
     run([LEAV, str(ROOT / f'test/leaves/{name}.leav')], contains=message)
 run([LEAV, str(ROOT / 'test/leaves/constructors.leav')], contains='constructors OK')
 run([LEAV, str(ROOT / 'test/leaves/locals.leav')], contains='class locals OK')
@@ -59,7 +64,8 @@ with tempfile.TemporaryDirectory() as tmp:
     run([LEAV, str(constructors)], contains='constructors OK')
     for name, message in [('updates', 'method updates OK'),
                           ('coroutines', 'constructor coroutines OK'),
-                          ('parents', 'parent expressions OK')]:
+                          ('parents', 'parent expressions OK'),
+                          ('bounded', 'bounded lookup OK')]:
         for strip in (False, True):
             output = tmp / f'{name}-{strip}.luac'
             run([LEAVC, *(['-s'] if strip else []), '-o', str(output),
