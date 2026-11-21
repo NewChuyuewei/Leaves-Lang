@@ -38,7 +38,7 @@ jobs:
             platform: linux
             flags: "-DLUAI_ASSERT -DLUA_USE_APICHECK"
           - name: macos-posix
-            os: macos-14
+            os: macos-15
             platform: posix
             flags: ""
     steps:

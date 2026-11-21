@@ -17,7 +17,9 @@ assert(leaves.super(s) == Rect)
 assert(leaves.typeof(s) == Square and leaves.typeof(Square) == Square)
 assert(leaves.typeof({}) == nil and leaves.typeof(4) == nil)
 assert(Square.kind() == 'shape' and s.kind == nil)
-assert(tostring(s):match('^Square: 0x'))
+-- ISO C does not require Windows and Unix %p output to share a prefix.
+local address = tostring(s):match('^Square: (.+)$')
+assert(address and (address:match('^0x%x+$') or address:match('^%x+$')))
 assert(leaves.new(Square, 9).n == 18)
 class Empty end
 assert(leaves.typeof(Empty()) == Empty)

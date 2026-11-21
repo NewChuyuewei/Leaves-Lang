@@ -56,3 +56,7 @@ configuration、platform、flags。打包脚本用 subprocess 参数列表调用
 采用单独 mingw-static 目标，把 Lua 和 GCC 支持库链接进 exe，不分发自有 Lua DLL。
 此测试包面向 Windows 10/11 x64（依赖系统 UCRT），不保证 C 扩展 DLL 互操作、
 32 位 Windows、Windows ARM64 原生运行或旧版 Windows。原有 mingw DLL 目标不属于本次适配。
+
+Windows 适配还修正了对象字符串测试对 Unix `%p` 的 0x 前缀假设；
+运行时仍采用 ISO C 平台指针格式。首次远端执行报告 macos-14 配置不受支持，
+因此 macOS runner 调整为 macos-15，结果以对应提交的任务状态为准。

@@ -43,7 +43,7 @@ SHA-256 仅作完整性校验，不是数字签名或来源认证。
 Run workflow 选择分支。首次使用需确保仓库设置允许 GitHub Actions。
 
 注意：包仍依赖构建平台的系统库，不是任意系统通用的静态程序；
-Linux 包来自 Ubuntu 24.04，macOS 包来自 macos-14 runner，实际架构
+Linux 包来自 Ubuntu 24.04，macOS 包来自 macos-15 runner，实际架构
 以产物名及 BUILD-INFO.json 为准。macOS 使用 posix 而非带 readline
 的 macosx 目标。不要混用不同配置的静态库、C 扩展和字节码。
 Windows x64 包使用 windows-2022 + MSYS2 UCRT64 构建，产物名称为
