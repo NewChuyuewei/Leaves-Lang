@@ -60,3 +60,19 @@ configuration、platform、flags。打包脚本用 subprocess 参数列表调用
 Windows 适配还修正了对象字符串测试对 Unix `%p` 的 0x 前缀假设；
 运行时仍采用 ISO C 平台指针格式。首次远端执行报告 macos-14 配置不受支持，
 因此 macOS runner 调整为 macos-15，结果以对应提交的任务状态为准。
+
+## Windows 与托管构建实际结果
+
+源代码提交：`519c04bc4ee36afcbfb9d46d6042e233bd71cac0`。
+验证运行：[Actions 44850408481](https://github.com/NewChuyuewei/Leaves-Lang/actions/runs/44850408481)。
+Linux、严格 C89/C99、内部断言、macOS POSIX、Windows x64 六项任务均成功。
+Windows 完整回归、ZIP 重解压、无 MSYS2 PATH 的 PowerShell 运行及产物上传步骤均成功，
+分别覆盖 WIN-001/002/003；WIN-004 的退出码分类已实现，但没有人为触发 Windows 崩溃进行专项验证。
+
+测试包：[leaves-windows-x64](https://github.com/NewChuyuewei/Leaves-Lang/actions/runs/44850408481/artifacts/14684917826)，
+artifact ID 14684917826，外层包大小 650285 字节，保留期 14 天。
+包绑定上述代码提交，而非后续仅更新本记录的文档提交。
+
+沙箱尝试下载时被 artifact 存储主机的出站网络限制阻断，未在沙箱中取得或重运行 Windows 包；
+实际执行依据为托管 Windows job 的成功结果。用户可登录 GitHub 后下载产物。
+不将托管测试成功表述为 DO-178C 符合性或用户目标环境验证。
