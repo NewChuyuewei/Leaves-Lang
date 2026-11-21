@@ -36,7 +36,7 @@ RM= rm -f
 # == END OF USER SETTINGS -- NO NEED TO CHANGE ANYTHING BELOW THIS LINE =======
 
 # Convenience platforms targets.
-PLATS= guess aix bsd c89 freebsd generic ios linux linux-readline macosx mingw posix solaris
+PLATS= guess aix bsd c89 iso-c89 iso-c99 freebsd generic ios linux linux-readline macosx mingw posix solaris
 
 # What to install.
 TO_BIN= leav leavc

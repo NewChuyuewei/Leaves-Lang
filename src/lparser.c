@@ -2110,25 +2110,21 @@ static void retstat (LexState *ls) {
 #define LEAVES_VIEW_FN "__leaves_view"
 
 
-/*
-** Build the expression 'NAME.field', where NAME is the class variable (a
-** local, an upvalue, or a global) and 'field' is a constant string key.
-*/
 /* Where a class member is stored. */
 typedef enum { MEMBER_CLASS, MEMBER_VIEW, MEMBER_STATICS } MemberDest;
 
 
 /*
 ** Build the expression '<class>[destination][field]' for the class
-** variable 'cname'.  MEMBER_CLASS addresses the class table itself (static
-** members and the public copy of instance methods), MEMBER_VIEW addresses
-** the table instances index.
+** local variable at 'cvar'. MEMBER_CLASS addresses the class table itself;
+** MEMBER_VIEW addresses the table instances index; MEMBER_STATICS addresses
+** the static member table.
 */
-static void classfield (LexState *ls, TString *cname, TString *field,
+static void classfield (LexState *ls, int cvar, TString *field,
                         MemberDest dest, expdesc *v) {
   FuncState *fs = ls->fs;
   expdesc key;
-  buildvar(ls, cname, v);        /* the class variable itself */
+  init_var(fs, v, cvar);        /* declaration, even if its name is shadowed */
   luaK_exp2anyregup(fs, v);
   luaK_exp2anyreg(fs, v);
   lua_assert(v->k == VNONRELOC);
@@ -2182,7 +2178,7 @@ static int teststatic (LexState *ls, int *ispending) {
 ** Parse one member of a class body:
 **   member -> [STATIC] FUNCTION NAME body
 */
-static void classmember (LexState *ls, TString *cname, int isstatic) {
+static void classmember (LexState *ls, int cvar, int isstatic) {
   FuncState *fs = ls->fs;
   expdesc v, b;
   TString *mname;
@@ -2196,7 +2192,7 @@ static void classmember (LexState *ls, TString *cname, int isstatic) {
     /* A static member lives in NAME.__leaves_statics, never on the class
        table itself: instances index the view, not the class, and the
        statics table lets lookups chain to the superclass.  No 'self'. */
-    classfield(ls, cname, mname, MEMBER_STATICS, &v);
+    classfield(ls, cvar, mname, MEMBER_STATICS, &v);
     body(ls, &b, 0, line);
     luaK_storevar(fs, &v, &b);
   }
@@ -2205,10 +2201,10 @@ static void classmember (LexState *ls, TString *cname, int isstatic) {
        the class' view (what instances index) and on the class itself, so
        that explicit dispatch ('Shape.init(self, ...)') works too. */
     expdesc v2, b2;
-    classfield(ls, cname, mname, MEMBER_VIEW, &v);
+    classfield(ls, cvar, mname, MEMBER_VIEW, &v);
     body(ls, &b, 2, line);
     luaK_storevar(fs, &v, &b);
-    classfield(ls, cname, mname, MEMBER_CLASS, &v2);
+    classfield(ls, cvar, mname, MEMBER_CLASS, &v2);
     b2 = b;  /* the closure is still in its register */
     luaK_storevar(fs, &v2, &b2);
   }
@@ -2218,8 +2214,9 @@ static void classmember (LexState *ls, TString *cname, int isstatic) {
 
 
 static void classstat (LexState *ls, int line) {
-  /* classstat -> CLASS NAME [EXTENDS suffixedexp] [DO] {member} END */
+  /* classstat -> CLASS NAME [EXTENDS expr] [DO] {member | localstat} END */
   FuncState *fs = ls->fs;
+  BlockCnt bl;
   TString *cname;
   expdesc sup, f, res, v;
   int vidx;
@@ -2253,8 +2250,19 @@ static void classstat (LexState *ls, int line) {
   fs->freereg = luaY_nvarstack(fs);
 
   testnext(ls, TK_DO);  /* optional 'do' */
+  enterblock(fs, &bl, 0);  /* private lexical scope, not the class variable */
   for (;;) {
     int isstatic, ispending;
+    if (testnext(ls, ';'))
+      continue;
+    if (testnext(ls, TK_LOCAL)) {
+      if (testnext(ls, TK_FUNCTION))
+        localfunc(ls);
+      else
+        localstat(ls);
+      fs->freereg = luaY_nvarstack(fs);
+      continue;
+    }
     if (ls->t.token == TK_FUNCTION)
       isstatic = 0;
     else if (teststatic(ls, &ispending))
@@ -2262,10 +2270,11 @@ static void classstat (LexState *ls, int line) {
     else if (ispending || block_follow(ls, 0) || ls->t.token == TK_EOS)
       break;  /* a peeked, non-member token or the end of the body */
     else
-      luaX_syntaxerror(ls, "function declaration expected in class body");
-    classmember(ls, cname, isstatic);
+      luaX_syntaxerror(ls, "local or function declaration expected in class body");
+    classmember(ls, vidx, isstatic);
   }
   check_match(ls, TK_END, TK_CLASS, line);
+  leaveblock(fs);  /* close captured locals and to-be-closed values */
 }
 
 

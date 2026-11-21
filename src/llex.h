@@ -33,7 +33,8 @@
 ** 'class' is an ordinary identifier, so every existing .lua file keeps
 ** compiling exactly as before.  The dialect is switched on by the 'l'
 ** letter in a `lua_load`/`load` mode string; the standalone interpreter
-** and 'loadfile' turn it on automatically for '.leav' files.
+** turns it on automatically for '.leav' main files. Library loaders
+** need an explicit mode containing 'l'.
 */
 #define LUA_MODE_LEAVES		'l'
 

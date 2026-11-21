@@ -30,7 +30,7 @@ CMCFLAGS=
 
 # == END OF USER SETTINGS -- NO NEED TO CHANGE ANYTHING BELOW THIS LINE =======
 
-PLATS= guess aix bsd c89 freebsd generic ios linux linux-readline macosx mingw posix solaris
+PLATS= guess aix bsd c89 iso-c89 iso-c99 freebsd generic ios linux linux-readline macosx mingw posix solaris
 
 LUA_A=	liblua.a
 CORE_O=	lapi.o lcode.o lctype.o ldebug.o ldo.o ldump.o lfunc.o lgc.o llex.o lmem.o lobject.o lopcodes.o lparser.o lstate.o lstring.o ltable.o ltm.o lundump.o lvm.o lzio.o
@@ -112,6 +112,14 @@ c89:
 	@echo '*** with LUA_USE_C89 to ensure consistency'
 	@echo ''
 
+# Strict ISO C builds use the portable switch dispatcher, not GCC's
+# optional labels-as-values extension. Clean before changing build modes.
+iso-c89:
+	$(MAKE) $(ALL) CC="gcc -std=c89" SYSCFLAGS="-DLUA_USE_C89 -DLUA_USE_JUMPTABLE=0" MYCFLAGS="$(MYCFLAGS) -pedantic-errors"
+
+iso-c99:
+	$(MAKE) $(ALL) CC="gcc -std=c99" SYSCFLAGS="-DLUA_USE_JUMPTABLE=0" MYCFLAGS="$(MYCFLAGS) -pedantic-errors"
+
 FreeBSD NetBSD OpenBSD freebsd:
 	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_LINUX -DLUA_USE_READLINE -I/usr/include/edit" SYSLIBS="-Wl,-E -ledit" CC="cc"
 
@@ -172,7 +180,7 @@ ldblib.o: ldblib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h llimits.h
 ldebug.o: ldebug.c lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
  lobject.h ltm.h lzio.h lmem.h lcode.h llex.h lopcodes.h lparser.h \
  ldebug.h ldo.h lfunc.h lstring.h lgc.h ltable.h lvm.h
-ldo.o: ldo.c lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
+ldo.o: ldo.c llex.h lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
  lobject.h ltm.h lzio.h lmem.h ldebug.h ldo.h lfunc.h lgc.h lopcodes.h \
  lparser.h lstring.h ltable.h lundump.h lvm.h
 ldump.o: ldump.c lprefix.h lua.h luaconf.h lapi.h llimits.h lstate.h \
@@ -181,6 +189,7 @@ lfunc.o: lfunc.c lprefix.h lua.h luaconf.h ldebug.h lstate.h lobject.h \
  llimits.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h
 lgc.o: lgc.c lprefix.h lua.h luaconf.h ldebug.h lstate.h lobject.h \
  llimits.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h lstring.h ltable.h
+lleaveslib.o: lleaveslib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h
 linit.o: linit.c lprefix.h lua.h luaconf.h lualib.h lauxlib.h llimits.h
 liolib.o: liolib.c lprefix.h lua.h luaconf.h lauxlib.h lualib.h llimits.h
 llex.o: llex.c lprefix.h lua.h luaconf.h lctype.h llimits.h ldebug.h \
