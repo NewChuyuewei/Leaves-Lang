@@ -1,0 +1,38 @@
+class Base
+  function value() return 42 end
+end
+local calls = 0
+local function parent()
+  calls = calls + 1
+  return Base, 'ignored extra result'
+end
+class FromCall extends parent() end
+assert(calls == 1 and FromCall():value() == 42)
+local holder = { base = Base }
+class FromField extends holder.base end
+class FromIndex extends holder['base'] end
+class FromChoice extends (false or parent()) end
+assert(calls == 2)
+assert(FromField():value() == 42 and FromIndex():value() == 42)
+assert(FromChoice():value() == 42)
+local chooser = setmetatable({}, { __index = function() return Base end })
+class FromMeta extends chooser.base end
+assert(FromMeta():value() == 42)
+local function nested()
+  class LocalBase
+    function value() return 123 end
+  end
+  local function make() return LocalBase end
+  class LocalChild extends make() end
+  return LocalChild
+end
+assert(nested()():value() == 123)
+local function varparent(...)
+  class VarChild extends (...) end
+  return VarChild
+end
+assert(varparent(Base)():value() == 42)
+assert(not pcall(function()
+  class Invalid extends parent()() end  -- an instance is not a superclass
+end))
+print('parent expressions OK')

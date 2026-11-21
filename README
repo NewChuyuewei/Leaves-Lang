@@ -92,8 +92,11 @@ Leaves 标准库 leaves 会随标准库一起打开；这是新增的全局库�
 * static 是类体中的上下文修饰符，不是全局关键字。
 * Leaves 模式下 class/extends 是关键字，但允许 cfg.class 等字段访问。
 * __leaves_* 是保留的实现字段，不要修改；目前类不是封闭或安全沙箱。
-* 实例方法在声明时写入类表和实例视图；运行时直接给 Cls.method 赋值
-  不会同步更新实例视图。动态方法替换尚未提供稳定 API。
+* 实例方法在声明时写入类表和实例视图；运行时使用 leaves.setmethod
+  同步更新。直接给 Cls.method 赋值仍不会同步更新实例视图。
+* 构造器在可挂起的协程中支持 yield，Cls(...) 和 leaves.new 都适用；
+  主线程及不可挂起的宿主 C 调用边界仍遵守 Lua 的限制。
+* 完整查找顺序、方法更新和协程语义见 doc/objects.md。
 
 Lua 风格的类内封装
 ------------------
@@ -132,7 +135,8 @@ Lua 风格的类内封装
 运行时辅助 API
 --------------
   leaves.class(name [, base])       创建类（无需方言也可调用）
-  leaves.new(Cls, ...)              等价于 Cls(...)
+  leaves.new(Cls, ...)              等价于 Cls(...)，支持协程挂起
+  leaves.setmethod(Cls, name, fn)    同步更新实例方法；fn 为 nil 时删除本类定义
   leaves.typeof(value)              返回实例的类 / 类本身；非对象返回 nil
   leaves.super(Cls_or_instance)     返回直接父类；根类返回 nil
   leaves.isa(value, Cls)            检查继承关系，也可 value:isa(Cls)

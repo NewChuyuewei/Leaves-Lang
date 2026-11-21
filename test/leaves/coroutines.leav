@@ -1,0 +1,109 @@
+class Async
+  function init(value)
+    self.value = value
+    local increment = coroutine.yield('initializing', self)
+    self.value = self.value + increment
+    coroutine.yield('almost', self)
+    return 123, 'ignored'
+  end
+end
+class Child extends Async end
+
+local function exercise(construct)
+  local co = coroutine.create(function() return construct(5) end)
+  local ok, phase, object = coroutine.resume(co)
+  assert(ok and phase == 'initializing' and object.value == 5)
+  assert(coroutine.status(co) == 'suspended')
+  collectgarbage('collect')
+  local ok2, phase2, same = coroutine.resume(co, 7)
+  assert(ok2 and phase2 == 'almost' and same == object)
+  assert(object.value == 12)
+  local results = table.pack(coroutine.resume(co))
+  assert(results.n == 2 and results[1] and results[2] == object)
+  assert(coroutine.status(co) == 'dead')
+end
+exercise(function(value) return Async(value) end)
+exercise(function(value) return Child(value) end)
+exercise(function(value) return leaves.new(Child, value) end)
+
+-- Non-yielding constructors and no-init classes still return one instance.
+class Empty end
+local co = coroutine.create(function() return leaves.new(Empty) end)
+local ok, result = coroutine.resume(co)
+assert(ok and leaves.typeof(result) == Empty)
+
+class Failing
+  function init()
+    coroutine.yield('before error')
+    error('failure after resume')
+  end
+end
+for _, construct in ipairs({
+  function() return Failing() end,
+  function() return leaves.new(Failing) end,
+}) do
+  local thread = coroutine.create(function()
+    local success, err = pcall(construct)
+    assert(not success and err:find('failure after resume', 1, true))
+    return 'handled'
+  end)
+  local success, phase = coroutine.resume(thread)
+  assert(success and phase == 'before error')
+  local success2, outcome = coroutine.resume(thread)
+  assert(success2 and outcome == 'handled')
+end
+
+-- Closing a suspended constructor closes its Lua resources exactly once.
+local closed = 0
+class Closing
+  function init()
+    local resource <close> = setmetatable({}, {
+      __close = function() closed = closed + 1 end,
+    })
+    coroutine.yield('close me')
+  end
+end
+local suspended = coroutine.create(function() return leaves.new(Closing) end)
+assert(coroutine.resume(suspended))
+assert(coroutine.close(suspended))
+assert(closed == 1)
+collectgarbage('collect')
+
+-- Recursive construction can suspend without confusing saved instances.
+class Recursive
+  function init(n)
+    self.n = n
+    if n == 0 then
+      coroutine.yield('bottom')
+    else
+      self.child = Recursive(n - 1)
+    end
+  end
+end
+local recursive = coroutine.create(function() return Recursive(3) end)
+local good, message = coroutine.resume(recursive)
+assert(good and message == 'bottom')
+local done, root = coroutine.resume(recursive)
+assert(done and root.n == 3 and root.child.child.child.n == 0)
+
+-- An abandoned suspended coroutine must not keep instances rooted globally.
+local weak = setmetatable({}, { __mode = 'v' })
+class Abandoned
+  function init()
+    weak[1] = self
+    coroutine.yield()
+  end
+end
+do
+  local thread = coroutine.create(function() return Abandoned() end)
+  assert(coroutine.resume(thread))
+  assert(weak[1] ~= nil)
+end
+collectgarbage('collect')
+collectgarbage('collect')
+assert(weak[1] == nil)
+
+-- Yielding still fails normally on the main thread.
+local success, err = pcall(Async, 1)
+assert(not success and err:find('yield', 1, true))
+print('constructor coroutines OK')

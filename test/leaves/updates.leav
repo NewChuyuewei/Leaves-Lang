@@ -1,0 +1,60 @@
+class Base
+  function init(value) self.value = value end
+  function get() return self.value end
+  static function label() return 'base' end
+end
+class Child extends Base end
+class Grandchild extends Child end
+local a, b = Base(2), Grandchild(3)
+local saved = a.get
+local function doubled(self) return self.value * 2 end
+assert(leaves.setmethod(Base, 'get', doubled) == Base)
+assert(Base.get == doubled and Child.get == doubled)
+assert(a:get() == 4 and b:get() == 6)
+assert(saved(a) == 2)  -- saved closures do not change
+leaves.setmethod(Child, 'get', function(self) return self.value + 10 end)
+assert(a:get() == 4 and b:get() == 13)
+leaves.setmethod(Base, 'get', function(self) return self.value * 3 end)
+assert(a:get() == 6 and b:get() == 13)
+leaves.setmethod(Child, 'get', nil)
+assert(b:get() == 9 and Child.get == Base.get)
+leaves.setmethod(Base, 'get', nil)
+assert(a.get == nil and b.get == nil and Grandchild.get == nil)
+leaves.setmethod(Child, 'extra', function() return 42 end)
+assert(b:extra() == 42 and a.extra == nil)
+leaves.setmethod(Child, 'extra', nil)
+assert(b.extra == nil)
+
+-- Updating init changes future construction, never already-built objects.
+leaves.setmethod(Base, 'init', function(self, value) self.value = value + 1 end)
+assert(Grandchild(8).value == 9 and b.value == 3)
+leaves.setmethod(Base, 'init', nil)
+assert(Grandchild(8).value == nil)
+assert(Grandchild.label() == 'base' and b.label == nil)
+
+-- An instance's own fields still take precedence over the shared view.
+leaves.setmethod(Base, 'get', function() return 'class' end)
+a.get = function() return 'instance' end
+assert(a:get() == 'instance' and b:get() == 'class')
+
+-- API rejects bad arguments before touching any method table.
+for _, args in ipairs({
+  {a, 'get', function() end},
+  {{}, 'get', function() end},
+  {Base, 42, function() end},
+  {Base, '__leaves_view', function() end},
+  {Base, '__leaves_super', function() end},
+  {Base, 'get', false},
+  {Base, 'get', {}},
+}) do
+  assert(not pcall(leaves.setmethod, table.unpack(args)))
+  assert(b:get() == 'class')
+end
+assert(not pcall(leaves.setmethod, Base, 'get'))
+
+-- Works through the Lua API without using class syntax as well.
+local Plain = leaves.class('Plain')
+leaves.setmethod(Plain, 'get', function() return 'plain' end)
+assert(Plain():get() == 'plain')
+collectgarbage('collect')
+print('method updates OK')

@@ -2204,8 +2204,12 @@ static void classmember (LexState *ls, int cvar, int isstatic) {
     classfield(ls, cvar, mname, MEMBER_VIEW, &v);
     body(ls, &b, 2, line);
     luaK_storevar(fs, &v, &b);
+    /* storevar releases the closure register, but the second store still
+       needs it. Reserve it again before emitting any more expressions. */
+    lua_assert(b.k == VNONRELOC && b.u.info == fs->freereg);
+    luaK_reserveregs(fs, 1);
     classfield(ls, cvar, mname, MEMBER_CLASS, &v2);
-    b2 = b;  /* the closure is still in its register */
+    b2 = b;  /* the closure is still in its reserved register */
     luaK_storevar(fs, &v2, &b2);
   }
   luaK_fixline(fs, line);
@@ -2228,8 +2232,12 @@ static void classstat (LexState *ls, int line) {
   adjustlocalvars(ls, 1);
   luaK_reserveregs(fs, 1);  /* room for the class value */
 
-  if (testnext(ls, TK_EXTENDS))
+  if (testnext(ls, TK_EXTENDS)) {
     expr(ls, &sup);  /* superclass expression */
+    /* Finish calls/indexing before building the helper's call frame.
+       A pending VCALL would otherwise reuse the helper argument slots. */
+    luaK_exp2anyreg(fs, &sup);
+  }
   else
     init_exp(&sup, VNIL, 0);
 
@@ -2240,7 +2248,14 @@ static void classstat (LexState *ls, int line) {
   luaK_exp2nextreg(fs, &f);  /* function, in 'base' */
   codestring(&res, cname);
   luaK_exp2nextreg(fs, &res);  /* class name, in 'base'+1 */
-  luaK_exp2nextreg(fs, &sup);  /* superclass, in 'base'+2 */
+  if (sup.k == VNONRELOC) {
+    /* The saved superclass is below the new call frame, not at the top.
+       exp2nextreg would free it as a top temporary and overwrite NAME. */
+    luaK_reserveregs(fs, 1);
+    luaK_codeABC(fs, OP_MOVE, fs->freereg - 1, sup.u.info, 0);
+  }
+  else
+    luaK_exp2nextreg(fs, &sup);  /* nil superclass, in 'base'+2 */
   init_exp(&res, VCALL, luaK_codeABC(fs, OP_CALL, base, 3, 2));
   luaK_fixline(fs, line);
   fs->freereg = cast_byte(base + 1);  /* call returns exactly one value */
