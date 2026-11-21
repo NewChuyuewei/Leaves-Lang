@@ -30,7 +30,7 @@ CMCFLAGS=
 
 # == END OF USER SETTINGS -- NO NEED TO CHANGE ANYTHING BELOW THIS LINE =======
 
-PLATS= guess aix bsd c89 iso-c89 iso-c99 freebsd generic ios linux linux-readline macosx mingw posix solaris
+PLATS= guess aix bsd c89 iso-c89 iso-c99 freebsd generic ios linux linux-readline macosx mingw mingw-static posix solaris
 
 LUA_A=	liblua.a
 CORE_O=	lapi.o lcode.o lctype.o ldebug.o ldo.o ldump.o lfunc.o lgc.o llex.o lmem.o lobject.o lopcodes.o lparser.o lstate.o lstring.o ltable.o ltm.o lundump.o lvm.o lzio.o
@@ -70,7 +70,7 @@ test:
 	./$(LUA_T) -v
 
 clean:
-	$(RM) $(ALL_T) $(ALL_O)
+	$(RM) $(ALL_T) $(ALL_O) leav.exe leavc.exe
 
 depend:
 	@$(CC) $(CFLAGS) -MM l*.c
@@ -142,6 +142,11 @@ mingw:
 	"AR=$(CC) -shared -o" "RANLIB=strip --strip-unneeded" \
 	"SYSCFLAGS=-DLUA_BUILD_AS_DLL" "SYSLIBS=" "SYSLDFLAGS=-s" lua.exe
 	$(MAKE) "LUAC_T=luac.exe" luac.exe
+
+# Native Windows test executables, without a separate Lua/GCC runtime DLL.
+# Use an MSYS2 MinGW/UCRT toolchain; clean before changing configurations.
+mingw-static:
+	$(MAKE) $(ALL) LUA_T="leav.exe" LUAC_T="leavc.exe" SYSLIBS="" MYLDFLAGS="$(MYLDFLAGS) -static-libgcc"
 
 posix:
 	$(MAKE) $(ALL) SYSCFLAGS="-DLUA_USE_POSIX"
