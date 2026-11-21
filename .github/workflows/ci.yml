@@ -1,0 +1,21 @@
+name: Build and regression tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux, iso-c89, iso-c99]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make ${{ matrix.platform }} -j2
+      - name: Regression suite
+        run: python3 test/leaves/run.py
+      - name: Examples
+        run: |
+          ./src/leav examples/shapes.leav
+          ./src/leav examples/wallet.leav

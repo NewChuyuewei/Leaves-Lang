@@ -1,0 +1,109 @@
+-- Class bodies have the same lexical rules as Lua's do ... end blocks.
+local secret = 'outer'
+class Counter do
+  local secret = 0
+  local step <const> = 2
+  local function add(n)
+    secret = secret + n
+    return secret
+  end
+  function next(self)
+    return add(step)
+  end
+  static function total()
+    return secret
+  end
+end
+assert(secret == 'outer')
+assert(Counter():next() == 2)
+assert(Counter():next() == 4)  -- class locals are shared by its instances
+assert(Counter.total() == 4)
+assert(Counter.secret == nil and Counter().secret == nil)
+assert(Counter.add == nil and Counter.step == nil)
+
+-- Per-instance private state uses an ordinary Lua weak-key table.
+class Wallet
+  local balances = setmetatable({}, { __mode = 'k' })
+  local function valid(amount)
+    assert(type(amount) == 'number' and amount >= 0)
+    return amount
+  end
+  function init(amount)
+    balances[self] = valid(amount)
+  end
+  function deposit(amount)
+    balances[self] = balances[self] + valid(amount)
+    return balances[self]
+  end
+  function balance()
+    return balances[self]
+  end
+end
+local a, b = Wallet(10), Wallet(20)
+assert(a:deposit(5) == 15 and b:balance() == 20)
+assert(a.balances == nil and Wallet.balances == nil)
+class Savings extends Wallet end
+assert(Savings(30):balance() == 30)
+
+-- Helpers do not receive an implicit self, and can recurse.
+class Math
+  local function factorial(n)
+    if n == 0 then return 1 end
+    return n * factorial(n - 1)
+  end
+  static function fact(n)
+    return factorial(n)
+  end
+end
+assert(Math.fact(6) == 720)
+
+-- Closing the class scope must close upvalues before registers are reused.
+local classes = {}
+for i = 1, 40 do
+  class Item
+    local value = i
+    function get() return value end
+    function set(n) value = n end
+  end
+  classes[i] = Item
+end
+for i = 1, 40 do assert(classes[i]():get() == i) end
+classes[1]():set(100)
+assert(classes[1]():get() == 100 and classes[2]():get() == 2)
+
+-- Class binding survives after end; body locals do not escape.
+local hidden, helper = 'outside', 'outside'
+class Scoped
+  local hidden = 'inside'
+  local function helper() return hidden end
+  function get() return helper() end
+end
+assert(Scoped():get() == 'inside')
+assert(hidden == 'outside' and helper == 'outside')
+
+-- Shadowing the class name does not redirect generated member stores.
+class Shadowed
+  local Shadowed = 'local value'
+  function get() return Shadowed end
+end
+assert(Shadowed():get() == 'local value')
+
+-- <close> follows Lua scope exit, not instance destruction.
+local closed = 0
+local mt = { __close = function() closed = closed + 1 end }
+class Closing
+  local resource <close> = setmetatable({}, mt)
+  function get() return resource end
+end
+assert(closed == 1 and type(Closing():get()) == 'table')
+
+-- Local declarations can be interleaved with method declarations.
+class Ordered
+  local x = 1;
+  function first() return x end;
+  local x = 2
+  function second() return x end
+end
+assert(Ordered():first() == 1 and Ordered():second() == 2)
+collectgarbage('collect')
+print('class locals OK')

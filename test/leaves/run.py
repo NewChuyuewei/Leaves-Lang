@@ -19,6 +19,13 @@ def run(args, ok=True, contains=None):
 
 
 run([LEAV, str(ROOT / 'test/leaves/objects.leav')], contains='objects OK')
+run([LEAV, str(ROOT / 'test/leaves/locals.leav')], contains='class locals OK')
+run([LEAV, '--lua', str(ROOT / 'test/leaves/locals.leav')], ok=False)
+run([LEAV, '--leaves', '-e',
+     'class A local x <const> = 1; function set() x = 2 end end'], ok=False)
+run([LEAV, '--leaves', '-e', 'class A local x = end'], ok=False)
+run([LEAV, '--leaves', '-e', 'class A local function f() end'], ok=False)
+run([LEAV, '--leaves', '-e', 'class A return 1 end'], ok=False)
 run([LEAV, '-e', 'local class, extends = 1, 2; assert(class+extends==3)'])
 run([LEAV, '--lua', '-e', 'local class = 1; assert(class==1)'])
 run([LEAV, '--leaves', '-e', 'class A end; assert(A():isa(A))'])
@@ -35,6 +42,12 @@ with tempfile.TemporaryDirectory() as tmp:
     run([LEAVC, '-o', str(code), str(ROOT / 'test/leaves/objects.leav')])
     run([LEAV, str(code)], contains='objects OK')
     run([LEAVC, '--lua', '-p', str(ROOT / 'test/leaves/objects.leav')], ok=False)
+    locals_code = tmp / 'locals.luac'
+    run([LEAVC, '-o', str(locals_code), str(ROOT / 'test/leaves/locals.leav')])
+    run([LEAV, str(locals_code)], contains='class locals OK')
+    stripped = tmp / 'stripped.luac'
+    run([LEAVC, '-s', '-o', str(stripped), str(ROOT / 'test/leaves/locals.leav')])
+    run([LEAV, str(stripped)], contains='class locals OK')
     forced = tmp / 'forced.lua'
     forced.write_text('class A end; assert(A():isa(A))')
     run([LEAV, str(forced)], ok=False)

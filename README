@@ -1,7 +1,7 @@
 Leaves — 基于 Lua 5.5.1 的渐进式语言扩展
 =========================================
 
-当前是开发中的第一阶段：品牌化、可选方言、基础 OOP。
+当前是开发中的第一阶段：品牌化、可选方言、基础 OOP 与类体词法封装。
 保留 Lua VM、GC、C API 与字节码格式；尚不是全部规划特性的正式版本。
 Lua 原始文档与版权许可保留在 doc/ 和 src/lua.h 中。
 
@@ -17,6 +17,35 @@ Lua 原始文档与版权许可保留在 doc/ 和 src/lua.h 中。
 产物为 src/leav、src/leavc、src/liblua.a。
 安装时头文件、库名、模块路径仍沿用 Lua，以便复用现有 C 扩展；
 安装的 lua.1 / luac.1 仍是上游手册，Leaves 专有用法以本文为准。
+
+底层实现：ISO C
+---------------
+解释器、编译器与运行时继续使用 C，不引入 C++、Rust 或额外运行时。
+新增 C 代码遵循 Lua 的函数布局、缩进与注释风格，复用 Lua 的编译器、
+栈 API、表、闭包和 GC，而不是另写一套对象内存管理。
+
+除上游的默认平台构建外，提供严格 ISO C 构建目标：
+
+  make clean
+  make iso-c99 -j4
+  python3 test/leaves/run.py
+
+或者使用 Lua 的 C89 配置：
+
+  make clean
+  make iso-c89 -j4
+  python3 test/leaves/run.py
+
+两个 iso 目标均启用 -pedantic-errors，使用 Lua 的可移植 switch 分派，
+关闭 GCC labels-as-values 扩展。默认 make 仍沿用上游的平台优化配置。
+切换构建模式前必须 make clean，避免混用不同编译选项生成的目标文件。
+C89 构建使用 LUA_USE_C89，整数范围可能与默认构建不同；C 扩展必须
+使用相同配置重新编译。字节码也不要跨不同数值配置混用。
+严格目标未启用 POSIX 动态库加载；平台构建提供的平台能力仍按 Lua
+原有配置选择。纯 ISO 构建下，系统链接器可能提示上游 tmpnam 的风险，
+这与新增语法无关；不要将临时文件名函数用于安全敏感用途。
+
+仓库 CI 配置覆盖 Linux、严格 C89、严格 C99 构建与回归测试。
 
 兼容模式
 --------
@@ -56,7 +85,7 @@ Leaves 标准库 leaves 会随标准库一起打开；这是新增的全局库�
   assert(s.kind == nil)             -- 静态方法不会泄漏到实例
 
 * class 声明词法局部变量；extends 后可接表达式；类体前 do 可选。
-* 类体目前只支持 function 和 static function 方法声明。
+* 类体支持 function、static function、local 和 local function 声明。
 * 实例方法隐式添加 self；显式写 function init(self, ...) 也受支持。
 * Cls(...) 创建实例并调用继承链中的 init；忽略 init 的返回值。
 * 父构造器不自动调用，使用 Base.init(self, ...) 显式调用。
@@ -65,6 +94,40 @@ Leaves 标准库 leaves 会随标准库一起打开；这是新增的全局库�
 * __leaves_* 是保留的实现字段，不要修改；目前类不是封闭或安全沙箱。
 * 实例方法在声明时写入类表和实例视图；运行时直接给 Cls.method 赋值
   不会同步更新实例视图。动态方法替换尚未提供稳定 API。
+
+Lua 风格的类内封装
+------------------
+继续沿用 Lua 的 function/end、local、表、闭包与冒号调用，不引入花括号
+或强制分号。类体拥有独立的词法作用域：
+
+  class Counter do
+    local count = 0
+    local function increment()
+      count = count + 1
+      return count
+    end
+    function next(self)
+      return increment()
+    end
+  end
+
+  local a, b = Counter(), Counter()
+  assert(a:next() == 1 and b:next() == 2)
+  assert(Counter.count == nil and a.count == nil)
+
+* 类体 local 不会成为公开字段，离开 end 后不再对外层可见；方法通过
+  闭包捕获它们。这是 Lua 的词法封装，不是新的 private 字段语法。
+* local 在执行类声明时初始化一次，因此普通类内 local 由该次声明创建
+  的所有实例共享。工厂函数中多次执行类声明，会创建独立的封装状态。
+* 每实例独立状态可以用 local 弱键表保存，以 self 为键；见
+  examples/wallet.leav。这里的“私有”是普通代码的词法不可见性，
+  不是防 debug 库、调试器或恶意代码的安全边界。
+* local function 是普通 Lua 函数，不注入 self；可递归调用。
+* 支持 Lua 的局部变量遮蔽、<const>、<close> 与可选分号。
+  <close> 在类体 end 时关闭，不是对象析构器；资源不会等实例销毁才关闭。
+* 局部变量按声明顺序可见，后声明的 local 不会被之前的方法捕获。
+* 任意赋值、return 等一般语句暂不作为类体顶层语句；方法内部仍支持
+  完整 Lua 语法。旧的隐式 self 写法保留，示例优先显式写 self。
 
 运行时辅助 API
 --------------
@@ -76,6 +139,8 @@ Leaves 标准库 leaves 会随标准库一起打开；这是新增的全局库�
 
 后续阶段（尚未实现）
 --------------------
+详细路线图、阶段验收标准与交付清单见 ROADMAP.md。
+
 1. 接口 implements、private 字段、import/export 声明式模块。
 2. 字符串插值、管道、箭头函数、安全导航。
 3. 可选类型标注、模式匹配和解构。

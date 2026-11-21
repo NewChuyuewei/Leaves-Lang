@@ -1,0 +1,28 @@
+-- Lua-style encapsulation: local bindings, closures, tables, and end.
+class Wallet do
+  local balances = setmetatable({}, { __mode = 'k' })
+
+  local function check_amount(amount)
+    assert(type(amount) == 'number' and amount >= 0, 'invalid amount')
+    return amount
+  end
+
+  function init(self, amount)
+    balances[self] = check_amount(amount)
+  end
+
+  function deposit(self, amount)
+    balances[self] = balances[self] + check_amount(amount)
+    return balances[self]
+  end
+
+  function balance(self)
+    return balances[self]
+  end
+end
+
+local alice = Wallet(100)
+local bob = Wallet(50)
+print(alice:deposit(25))  -- 125
+print(bob:balance())     -- 50: independent state
+print(alice.balances)    -- nil: not a public instance field

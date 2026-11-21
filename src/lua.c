@@ -106,13 +106,14 @@ static void print_usage (const char *badoption) {
   "  -v        show version information\n"
   "  -E        ignore environment variables\n"
   "  -W        turn warnings on\n"
+  ,
+  progname);
+  lua_writestringerror("%s",
   "  -L        treat all chunks as Leaves (same as --leaves)\n"
   "  --leaves  compile every chunk in the Leaves dialect\n"
   "  --lua     compile every chunk as plain Lua (default)\n"
   "  --        stop handling options\n"
-  "  -         stop handling options and execute stdin\n"
-  ,
-  progname);
+  "  -         stop handling options and execute stdin\n");
 }
 
 
