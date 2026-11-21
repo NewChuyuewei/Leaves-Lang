@@ -60,32 +60,26 @@ static void rawgetfield (lua_State *L, int idx, const char *name) {
 
 
 /*
-** Push the instance member named 'name' of class 'cls' (raw lookups, so
-** no metamethod of ours can fire): own members live on the class table,
-** inherited ones in the __leaves_view chain.  Leaves nil when absent.
+** Push one instance member, leaving exactly one value on the stack.
+** Class fields take precedence (including explicit constructor updates).
+** Otherwise the member view's table-only __index chain handles inheritance
+** in Lua's lookup implementation, without a C API loop per ancestor.
 */
 static void pushmember (lua_State *L, int cls, const char *name) {
   cls = lua_absindex(L, cls);
-  /* Own instance members live directly on the class table. */
   rawgetfield(L, cls, name);
   if (!lua_isnil(L, -1))
-    return;                       /* exactly one value pushed */
+    return;
   lua_pop(L, 1);
-  /* Inherited ones: walk the view chain with raw lookups only. */
   rawgetfield(L, cls, CLASS_VIEW);
-  while (lua_istable(L, -1)) {
-    lua_pushstring(L, name);
-    lua_rawget(L, -2);            /* view, value */
-    if (!lua_isnil(L, -1)) {
-      lua_remove(L, -2);          /* keep the value alone */
-      return;
-    }
-    lua_pop(L, 1);                /* drop nil */
-    rawgetfield(L, -1, VIEW_PARENT);
-    lua_remove(L, -2);            /* drop the view we just walked */
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, name);
+    lua_remove(L, -2);  /* keep only the member, including nil */
   }
-  lua_pop(L, 1);                  /* drop the final non-table value */
-  lua_pushnil(L);
+  else {
+    lua_pop(L, 1);
+    lua_pushnil(L);
+  }
 }
 
 
@@ -149,11 +143,9 @@ static int instance_tostring (lua_State *L) {
 /* Build an instance of the class at 'clsidx' and leave it on the stack. */
 static void push_instance (lua_State *L, int clsidx) {
   clsidx = lua_absindex(L, clsidx);
-  lua_getfield(L, clsidx, CLASS_MT);   /* the shared instance metatable */
-  lua_newtable(L);                     /* the instance */
-  lua_pushvalue(L, -2);                /* the metatable */
-  lua_setmetatable(L, -2);
-  lua_remove(L, -2);                   /* drop the metatable */
+  lua_newtable(L);                    /* the instance */
+  lua_getfield(L, clsidx, CLASS_MT);  /* the shared instance metatable */
+  lua_setmetatable(L, -2);            /* consumes the metatable */
 }
 
 

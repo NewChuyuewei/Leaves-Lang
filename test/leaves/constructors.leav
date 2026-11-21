@@ -1,0 +1,62 @@
+-- Constructor lookup must preserve arguments, identity and error behavior.
+class Empty end
+local Leaf = Empty
+for i = 1, 64 do
+  class Layer extends Leaf end
+  Leaf = Layer
+end
+for i = 1, 100 do
+  local o = Leaf(1, nil, 3)
+  assert(leaves.typeof(o) == Leaf and o:isa(Empty))
+end
+
+class Base
+  function init(...)
+    self.args = table.pack(...)
+    self.identity = self
+    collectgarbage('collect')
+    return false, 'ignored'
+  end
+end
+local Deep = Base
+for i = 1, 64 do
+  class Layer extends Deep end
+  Deep = Layer
+end
+local args = { n = 100 }
+for i = 1, args.n do
+  if i % 3 ~= 0 then args[i] = i end
+end
+local o = Deep(table.unpack(args, 1, args.n))
+assert(o.identity == o and o.args.n == args.n)
+for i = 1, args.n do assert(o.args[i] == args[i]) end
+assert(Deep().args.n == 0)
+assert(Deep(nil, 2, nil).args.n == 3)
+
+-- Own class-field overrides retain precedence over the member view.
+class Updated
+  function init() self.value = 'old' end
+end
+Updated.init = function(self, value) self.value = value end
+assert(Updated('new').value == 'new')
+Updated.init = false
+assert(not pcall(Updated))
+
+-- Static init must never become the instance constructor.
+class StaticOnly
+  static function init() error('static init called') end
+end
+class StaticChild extends StaticOnly end
+assert(leaves.typeof(StaticChild()) == StaticChild)
+
+-- Errors do not leave registry roots or contaminate subsequent calls.
+class Failing
+  function init() error('expected failure') end
+end
+class InheritedFailure extends Failing end
+for i = 1, 100 do
+  local ok, err = pcall(InheritedFailure)
+  assert(not ok and err:find('expected failure', 1, true))
+end
+assert(Deep(42).args[1] == 42)
+print('constructors OK')
