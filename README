@@ -18,6 +18,60 @@ Lua 原始文档与版权许可保留在 doc/ 和 src/lua.h 中。
 安装时头文件、库名、模块路径仍沿用 Lua，以便复用现有 C 扩展；
 安装的 lua.1 / luac.1 仍是上游手册，Leaves 专有用法以本文为准。
 
+GitHub Actions 自动构建
+-----------------------
+.github/workflows/ci.yml 在 push、PR 和手动触发时自动构建。
+矩阵包括 Linux 默认、严格 ISO C89、严格 ISO C99、内部断言检查，
+macOS POSIX 配置，以及独立的 Windows x64 任务。每项均执行回归、
+示例和解压后的产物冒烟检查，
+通过后才上传；失败项不上传可下载包。各任务的成功产物独立提供，
+并不代表整个矩阵已经全部通过。
+
+下载方法：
+1. 在 GitHub 仓库打开 Actions → Build and regression tests。
+2. 选择对应提交的运行记录，确认所需任务成功。
+3. 在 Artifacts 下载 leaves-<配置>-<架构>，先解开 GitHub 提供的 ZIP，
+   再解开其中的 .tar.gz；旁边的 .sha256 用于校验压缩包完整性。
+4. 运行解压目录中的 bin/leav、bin/leavc。
+
+包内包括解释器、字节码编译器、静态库、头文件、原始 Lua 手册、
+Leaves 文档、示例和 BUILD-INFO.json。元数据记录提交、工作区状态、
+编译器、平台与构建选项。产物保留 14 天，不自动创建 GitHub Release。
+SHA-256 仅作完整性校验，不是数字签名或来源认证。
+
+手动构建：工作流变更进入默认分支后，可在该 Actions 页面点击
+Run workflow 选择分支。首次使用需确保仓库设置允许 GitHub Actions。
+
+注意：包仍依赖构建平台的系统库，不是任意系统通用的静态程序；
+Linux 包来自 Ubuntu 24.04，macOS 包来自 macos-14 runner，实际架构
+以产物名及 BUILD-INFO.json 为准。macOS 使用 posix 而非带 readline
+的 macosx 目标。不要混用不同配置的静态库、C 扩展和字节码。
+Windows x64 包使用 windows-2022 + MSYS2 UCRT64 构建，产物名称为
+leaves-windows-x64。先解开 Actions 下载的外层 ZIP，再解开其中的
+leaves-windows-x64-AMD64.zip，即可在 Windows 10/11 x64 运行：
+
+  .\bin\leav.exe -v
+  .\bin\leav.exe .\examples\shapes.leav
+  .\bin\leavc.exe -o shapes.luac .\examples\shapes.leav
+  .\bin\leav.exe shapes.luac
+
+不需要安装 MSYS2：CI 会在移除工具链 PATH 后检查解压产物。
+该包将 Lua 和 GCC 支持库链接进 exe，依赖 Windows 系统 UCRT；不提供
+独立 Lua DLL，也未验证第三方 C 扩展 DLL 互操作。并非全系统兼容包，
+不面向 Windows 7、32 位 Windows 或原生 ARM64。
+原有 mingw DLL 目标仍保留上游命名；测试包使用新的 mingw-static 目标。
+这些是 CI 构建，不是签名发行版或 DO-178C 符合性证据。
+
+本地复现打包（先完成相同配置的构建和测试）：
+  python3 test/package.py --configuration=linux --platform=linux
+Windows 本地构建需在 MSYS2 UCRT64 shell 安装 GCC、make、git、原生 Python，
+执行 make mingw-static，再运行 python test/leaves/run.py 和
+python test/package.py --configuration=windows-x64 --platform=mingw-static --flags=-static-libgcc。
+不要用 MSYS Python 替代 UCRT64 原生 Windows Python。
+归档输出在忽略的 .work/artifacts/（Windows 为 ZIP，其他平台为 tar.gz）。
+该脚本不会替代完整回归测试，
+也不会检查已有 .o 文件是否确实使用声明的配置，切换配置前仍须清理。
+
 底层实现：ISO C
 ---------------
 解释器、编译器与运行时继续使用 C，不引入 C++、Rust 或额外运行时。

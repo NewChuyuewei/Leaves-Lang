@@ -1,29 +1,51 @@
 name: Build and regression tests
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    name: build (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: linux
+            os: ubuntu-24.04
             platform: linux
             flags: ""
           - name: iso-c89
+            os: ubuntu-24.04
             platform: iso-c89
             flags: ""
           - name: iso-c99
+            os: ubuntu-24.04
             platform: iso-c99
             flags: ""
           - name: assertions
+            os: ubuntu-24.04
             platform: linux
             flags: "-DLUAI_ASSERT -DLUA_USE_APICHECK"
+          - name: macos-posix
+            os: macos-14
+            platform: posix
+            flags: ""
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Build
         run: make ${{ matrix.platform }} -j2 MYCFLAGS="${{ matrix.flags }}"
       - name: Regression suite
@@ -32,3 +54,90 @@ jobs:
         run: |
           ./src/leav examples/shapes.leav
           ./src/leav examples/wallet.leav
+      - name: Package and validate extracted binaries
+        run: >-
+          python3 test/package.py
+          --configuration=${{ matrix.name }}
+          --platform=${{ matrix.platform }}
+          --flags="${{ matrix.flags }}"
+      - name: Upload build archive and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: leaves-${{ matrix.name }}-${{ runner.arch }}
+          path: |
+            .work/artifacts/*.tar.gz
+            .work/artifacts/*.sha256
+          # The output directory is hidden; upload only the explicit archive patterns.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: build (windows-x64)
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-python
+      - name: Build native Windows executables
+        run: make mingw-static -j2
+      - name: Regression suite
+        run: python test/leaves/run.py
+      - name: Package and validate Windows ZIP
+        run: >-
+          python test/package.py
+          --configuration=windows-x64
+          --platform=mingw-static
+          --flags=-static-libgcc
+      - name: Test extracted executables without MSYS2 on PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archives = @(Get-ChildItem .work/artifacts/leaves-windows-x64-*.zip)
+          if ($archives.Count -ne 1) { throw 'Expected one Windows ZIP' }
+          $archive = $archives[0]
+          $expected = ((Get-Content "$($archive.FullName).sha256") -split '\s+')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Windows archive checksum mismatch'
+          }
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath .work/windows-smoke
+          $directories = @(Get-ChildItem .work/windows-smoke -Directory)
+          if ($directories.Count -ne 1) { throw 'Expected one package directory' }
+          $root = $directories[0].FullName
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          function Invoke-Checked {
+            param([string]$Program, [string[]]$Arguments)
+            & $Program @Arguments
+            if ($LASTEXITCODE -ne 0) { throw "$Program failed: $LASTEXITCODE" }
+          }
+          Push-Location $root
+          try {
+            Invoke-Checked "$root\bin\leav.exe" @('-v')
+            Invoke-Checked "$root\bin\leav.exe" @('examples\shapes.leav')
+            Invoke-Checked "$root\bin\leav.exe" @('examples\wallet.leav')
+            Invoke-Checked "$root\bin\leavc.exe" @('-o', 'shapes.luac', 'examples\shapes.leav')
+            Invoke-Checked "$root\bin\leav.exe" @('shapes.luac')
+          } finally {
+            Pop-Location
+          }
+      - name: Upload Windows test archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: leaves-windows-x64
+          path: |
+            .work/artifacts/leaves-windows-x64-*.zip
+            .work/artifacts/leaves-windows-x64-*.sha256
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

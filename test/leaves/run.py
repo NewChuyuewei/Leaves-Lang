@@ -1,11 +1,13 @@
 """Hermetic CLI / parser / runtime regression tests; run from any directory."""
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-LEAV = str(ROOT / 'src/leav')
-LEAVC = str(ROOT / 'src/leavc')
+SUFFIX = '.exe' if os.name == 'nt' else ''
+LEAV = str(ROOT / f'src/leav{SUFFIX}')
+LEAVC = str(ROOT / f'src/leavc{SUFFIX}')
 count = 0
 
 
@@ -13,7 +15,7 @@ def run(args, ok=True, contains=None):
     global count
     # BND-006: a hung process or signal termination is never an expected error.
     p = subprocess.run(args, text=True, capture_output=True, cwd=ROOT, timeout=30)
-    if p.returncode < 0:
+    if p.returncode < 0 or (os.name == 'nt' and p.returncode >= 0x80000000):
         raise AssertionError(('process terminated by signal', args, p.stderr))
     if (p.returncode == 0) != ok:
         raise AssertionError((args, p.stdout, p.stderr))
